@@ -16,6 +16,7 @@ package org.finos.legend.engine.mcp.server.orchestrator;
 
 import org.eclipse.collections.api.block.function.Function3;
 import org.eclipse.collections.api.factory.Maps;
+import org.finos.legend.engine.mcp.protocol.v20251125.Constants;
 import org.finos.legend.engine.mcp.protocol.v20251125.implementation.Implementation;
 import org.finos.legend.engine.mcp.protocol.v20251125.notification.Notification;
 import org.finos.legend.engine.mcp.protocol.v20251125.request.Request;
@@ -112,6 +113,12 @@ public class LegendStatelessMcpServerOrchestrator
 
     private Response handleInitializeRequest(Request request)
     {
+        String clientVersion = request.getParams() != null
+                ? (String) request.getParams().get("protocolVersion")
+                : null;
+        String negotiatedVersion = clientVersion != null
+                ? clientVersion
+                : Constants.PROTOCOL_VERSION;
         return new ResultResponse(
                 request.getId(),
                 new InitializeResult(
@@ -122,6 +129,7 @@ public class LegendStatelessMcpServerOrchestrator
                                 )
                         ),
                         null,
+                        negotiatedVersion,
                         this.serverInfo
                 )
         );

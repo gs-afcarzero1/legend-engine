@@ -29,5 +29,6 @@
     <modules>
         <module>legend-engine-xt-mcp-protocol</module>
         <module>legend-engine-xt-mcp-server-orchestrator</module>
+        <module>legend-engine-xt-mcp-engine-server</module>
     </modules>
 </project>

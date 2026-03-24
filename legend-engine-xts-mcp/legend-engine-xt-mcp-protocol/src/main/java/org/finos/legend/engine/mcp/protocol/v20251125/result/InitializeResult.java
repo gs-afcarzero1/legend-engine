@@ -33,16 +33,22 @@ public class InitializeResult extends Result
     private final String instructions;
 
     @JsonProperty
-    private final String protocolVersion = Constants.PROTOCOL_VERSION;
+    private final String protocolVersion;
 
     @JsonProperty
     private final Implementation serverInfo;
 
     public InitializeResult(final Map<String, Object> _meta, final Map<String, Object> capabilities, final String instructions, final Implementation serverInfo)
     {
+        this(_meta, capabilities, instructions, Constants.PROTOCOL_VERSION, serverInfo);
+    }
+
+    public InitializeResult(final Map<String, Object> _meta, final Map<String, Object> capabilities, final String instructions, final String protocolVersion, final Implementation serverInfo)
+    {
         this._meta = _meta;
         this.capabilities = Objects.requireNonNull(capabilities);
         this.instructions = instructions;
+        this.protocolVersion = Objects.requireNonNull(protocolVersion);
         this.serverInfo = Objects.requireNonNull(serverInfo);
     }
 
