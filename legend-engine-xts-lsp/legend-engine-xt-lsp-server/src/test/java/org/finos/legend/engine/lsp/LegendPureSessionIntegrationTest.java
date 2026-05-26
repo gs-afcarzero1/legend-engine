@@ -14,7 +14,11 @@
 
 package org.finos.legend.engine.lsp;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -284,5 +288,111 @@ public class LegendPureSessionIntegrationTest
         Assert.assertNotNull("Should have output", result.getOutput());
         Assert.assertTrue("Should contain printed text, got: " + result.getOutput(),
                 result.getOutput().contains("test output"));
+    }
+
+    @Test
+    public void executeGo_failure_returnsConsoleOutputAndPureStackTrace()
+    {
+        session.reinitialize();
+        LegendPureSession.CompileResult r = session.modifyAndCompile(
+                "welcome.pure",
+                "function go():Any[*]\n" +
+                        "{\n" +
+                        "  print('before fail', 1);\n" +
+                        "  nest();\n" +
+                        "}\n" +
+                        "\n" +
+                        "function nest():Any[*]\n" +
+                        "{\n" +
+                        "  fail('boom');\n" +
+                        "}\n"
+        );
+        Assert.assertTrue("go() with failure should compile, got: " +
+                (r.getError() != null ? r.getError().getMessage() : ""), r.isSuccess());
+
+        LegendPureSession.ExecuteResult result = session.executeGo();
+        Assert.assertFalse("executeGo should fail", result.isSuccess());
+        Assert.assertNotNull("Failure output should be returned", result.getOutput());
+        Assert.assertTrue("Failure output should include prior console output, got: " + result.getOutput(),
+                result.getOutput().contains("before fail"));
+        Assert.assertTrue("Failure output should include the Pure stack, got: " + result.getOutput(),
+                result.getOutput().contains("Full Stack"));
+        Assert.assertTrue("Failure output should include the user function, got: " + result.getOutput(),
+                result.getOutput().contains("nest():Any[*]"));
+        Assert.assertTrue("Failure output should include source location, got: " + result.getOutput(),
+                result.getOutput().contains("welcome.pure line:"));
+    }
+
+    @Test
+    public void executeGo_nestedCompileFailure_includesGoCallSite()
+    {
+        LegendPureSession workspaceSession = new LegendPureSession();
+        RepositoryScanner scanner = new RepositoryScanner();
+        scanner.scan(Collections.singletonList(findWorkspaceRoot()));
+        workspaceSession.initialize(scanner);
+
+        LegendPureSession.CompileResult r = workspaceSession.modifyAndCompile(
+                "welcome.pure",
+                "function go():Any[*]\n" +
+                        "{\n" +
+                        "  print('before nested compile fail', 1);\n" +
+                        "  meta::legend::compile('Class probe::Broken\\n{\\n  missing: probe::Missing[1];\\n}');\n" +
+                        "}\n"
+        );
+        Assert.assertTrue("go() with nested compile failure should compile, got: " +
+                (r.getError() != null ? r.getError().getMessage() : ""), r.isSuccess());
+
+        LegendPureSession.ExecuteResult result = workspaceSession.executeGo();
+        Assert.assertFalse("executeGo should fail", result.isSuccess());
+        Assert.assertNotNull("Failure output should be returned", result.getOutput());
+        Assert.assertTrue("Failure output should include prior console output, got: " + result.getOutput(),
+                result.getOutput().contains("before nested compile fail"));
+        Assert.assertTrue("Failure output should include nested compile source, got: " + result.getOutput(),
+                result.getOutput().contains("resource:"));
+        Assert.assertTrue("Failure output should include go() call site, got: " + result.getOutput(),
+                result.getOutput().contains("welcome.pure line:4"));
+        Assert.assertTrue("Failure output should include the Pure stack, got: " + result.getOutput(),
+                result.getOutput().contains("Full Stack"));
+        Assert.assertTrue("Failure output should include the failing call, got: " + result.getOutput(),
+                result.getOutput().contains("compile(String[1]):PackageableElement[*]"));
+    }
+
+    @Test
+    public void executeGo_withWorkspaceRuntime_canUsePureIdeLightCoreNativeExtension()
+    {
+        LegendPureSession workspaceSession = new LegendPureSession();
+        RepositoryScanner scanner = new RepositoryScanner();
+        scanner.scan(Collections.singletonList(findWorkspaceRoot()));
+        workspaceSession.initialize(scanner);
+
+        LegendPureSession.CompileResult r = workspaceSession.modifyAndCompile(
+                "lsp_native_extension_test.pure",
+                "function go():Any[*]\n" +
+                        "{\n" +
+                        "  print(meta::pure::functions::date::today()->toString(), 1)\n" +
+                        "}\n"
+        );
+        Assert.assertTrue("go() using date native extension should compile, got: " +
+                (r.getError() != null ? r.getError().getMessage() : ""), r.isSuccess());
+
+        LegendPureSession.ExecuteResult result = workspaceSession.executeGo();
+        Assert.assertTrue("executeGo should execute date native extension, got: " + result.getError(),
+                result.isSuccess());
+        Assert.assertNotNull("Native extension execution should print output", result.getOutput());
+    }
+
+    private static Path findWorkspaceRoot()
+    {
+        Path current = Paths.get(System.getProperty("user.dir")).toAbsolutePath();
+        while (current != null)
+        {
+            if (Files.isDirectory(current.resolve("legend-engine-xts-lsp"))
+                    && Files.isDirectory(current.resolve("legend-engine-core")))
+            {
+                return current;
+            }
+            current = current.getParent();
+        }
+        throw new IllegalStateException("Could not find legend-engine workspace root from " + System.getProperty("user.dir"));
     }
 }

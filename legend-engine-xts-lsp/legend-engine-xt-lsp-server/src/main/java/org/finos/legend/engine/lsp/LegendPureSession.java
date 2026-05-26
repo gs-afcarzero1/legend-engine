@@ -16,6 +16,9 @@ package org.finos.legend.engine.lsp;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 import org.eclipse.collections.api.factory.Lists;
@@ -26,6 +29,7 @@ import org.eclipse.collections.impl.tuple.Tuples;
 import org.finos.legend.pure.m3.SourceMutation;
 import org.finos.legend.pure.m3.execution.Console;
 import org.finos.legend.pure.m3.execution.FunctionExecution;
+import org.finos.legend.pure.m3.exception.PureExecutionException;
 import org.finos.legend.pure.m3.serialization.filesystem.repository.CodeRepositoryProviderHelper;
 import org.finos.legend.pure.m3.serialization.filesystem.repository.CodeRepository;
 import org.finos.legend.pure.m3.serialization.filesystem.usercodestorage.RepositoryCodeStorage;
@@ -36,7 +40,6 @@ import org.finos.legend.pure.m3.serialization.runtime.PureRuntime;
 import org.finos.legend.pure.m3.serialization.runtime.PureRuntimeBuilder;
 import org.finos.legend.pure.m4.coreinstance.CoreInstance;
 import org.finos.legend.pure.m4.exception.PureException;
-import org.finos.legend.pure.runtime.java.interpreted.FunctionExecutionInterpreted;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -138,9 +141,9 @@ public class LegendPureSession
             }
         });
 
-        this.functionExecution = new FunctionExecutionInterpreted();
+        this.functionExecution = new StackPreservingFunctionExecutionInterpreted();
         this.functionExecution.init(this.pureRuntime, new Message(""));
-        LspLog.info("FunctionExecutionInterpreted initialized");
+        LspLog.info("StackPreservingFunctionExecutionInterpreted initialized");
 
         this.initialized = true;
         long elapsed = (System.currentTimeMillis() - start) / 1000;
@@ -376,8 +379,12 @@ public class LegendPureSession
             return new ExecuteResult(false, "Runtime not initialized", null);
         }
 
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        Console console = this.functionExecution.getConsole();
         try
         {
+            this.pureRuntime.compile();
+
             // Look up the go() function. Try multiple signatures since the function
             // may be defined with different return types.
             CoreInstance goFunction = this.pureRuntime.getFunction("go():Any[*]");
@@ -413,19 +420,13 @@ public class LegendPureSession
             LspLog.debug("executeGo: found function " + goFunction.getClassifier().getName()
                     + " at " + (goFunction.getSourceInformation() != null ? goFunction.getSourceInformation().getSourceId() : "unknown"));
 
-            // Capture console output
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
             PrintStream capturePrintStream = new PrintStream(baos, true);
-
-            Console console = this.functionExecution.getConsole();
             console.setPrintStream(capturePrintStream);
             console.setConsole(true);
 
             this.functionExecution.start(goFunction, FastList.newList());
 
-            console.setConsole(false);
-
-            String consoleOutput = baos.toString();
+            String consoleOutput = baosToString(baos);
             if (consoleOutput.isEmpty())
             {
                 consoleOutput = "(go() returned successfully with no console output. Use print() to see results.)";
@@ -437,9 +438,69 @@ public class LegendPureSession
         catch (Exception e)
         {
             LOGGER.error("executeGo failed", e);
-            LspLog.debug("executeGo failed: " + e.getMessage());
-            return new ExecuteResult(false, e.getMessage(), null);
+            String errorText = formatExecutionFailure(e, baos);
+            LspLog.debug("executeGo failed: " + errorText);
+            return new ExecuteResult(false, errorText, errorText);
         }
+        finally
+        {
+            console.setPrintStream(new PrintStream(new ByteArrayOutputStream(), true));
+            console.setConsole(false);
+        }
+    }
+
+    private String formatExecutionFailure(Exception e, ByteArrayOutputStream consoleOutput)
+    {
+        StringBuilder builder = new StringBuilder();
+        String printed = baosToString(consoleOutput);
+        if (!printed.isEmpty())
+        {
+            builder.append(printed);
+            if (!printed.endsWith("\n"))
+            {
+                builder.append('\n');
+            }
+        }
+
+        PureException pureException = PureException.findPureException(e);
+        if (pureException != null)
+        {
+            PureException original = pureException.getOriginatingPureException();
+            if (original == null)
+            {
+                original = pureException;
+            }
+            if (pureException instanceof PureExecutionException)
+            {
+                builder.append(original.getMessage()).append('\n');
+                StringBuffer buffer = new StringBuffer();
+                ((PureExecutionException) pureException).printPureStackTrace(
+                        buffer, "", this.functionExecution.getProcessorSupport());
+                builder.append(buffer);
+            }
+            else if (pureException.hasPureStackTrace())
+            {
+                builder.append(original.getMessage()).append('\n')
+                        .append(pureException.getPureStackTrace("    "));
+            }
+            else
+            {
+                builder.append(original.getMessage());
+            }
+        }
+        else
+        {
+            StringWriter writer = new StringWriter();
+            e.printStackTrace(new PrintWriter(writer));
+            builder.append(writer);
+        }
+
+        return builder.toString();
+    }
+
+    private static String baosToString(ByteArrayOutputStream baos)
+    {
+        return new String(baos.toByteArray(), StandardCharsets.UTF_8);
     }
 
     /**

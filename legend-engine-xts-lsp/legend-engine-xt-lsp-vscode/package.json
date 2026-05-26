@@ -185,6 +185,10 @@
       {
         "command": "legend.executeGo",
         "title": "Legend Pure: Execute go()"
+      },
+      {
+        "command": "legend.setServerJarPath",
+        "title": "Legend Pure: Set Server JAR Path"
       }
     ]
   },

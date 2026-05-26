@@ -26,6 +26,16 @@
     <packaging>jar</packaging>
     <name>Legend Engine - XT - LSP - Server</name>
 
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>com.google.errorprone</groupId>
+                <artifactId>error_prone_annotations</artifactId>
+                <version>2.48.0</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <build>
         <plugins>
             <plugin>
@@ -40,6 +50,17 @@
                             </ignoredUsedUndeclaredDependencies>
                             <ignoredUnusedDeclaredDependencies>
                                 <dependency>org.finos.legend.pure:legend-pure-runtime-java-engine-interpreted</dependency>
+                                <dependency>org.finos.legend.pure:legend-pure-runtime-java-extension-interpreted-store-relational</dependency>
+                                <dependency>org.finos.legend.pure:legend-pure-runtime-java-extension-interpreted-dsl-tds</dependency>
+                                <dependency>org.finos.legend.engine:legend-engine-pure-runtime-java-extension-interpreted-functions-standard</dependency>
+                                <dependency>org.finos.legend.engine:legend-engine-pure-runtime-java-extension-interpreted-functions-unclassified</dependency>
+                                <dependency>org.finos.legend.engine:legend-engine-pure-runtime-java-extension-interpreted-functions-json</dependency>
+                                <dependency>org.finos.legend.engine:legend-engine-pure-runtime-java-extension-interpreted-functions-relation</dependency>
+                                <dependency>org.finos.legend.engine:legend-engine-pure-runtime-java-extension-interpreted-functions-planExecution</dependency>
+                                <dependency>org.finos.legend.engine:legend-engine-pure-runtime-java-extension-interpreted-functions-pureExtensions</dependency>
+                                <dependency>org.finos.legend.engine:legend-engine-pure-runtime-java-extension-compiled-functions-pureExtensions</dependency>
+                                <dependency>org.finos.legend.engine:legend-engine-pure-runtime-java-extension-interpreted-functions-legendCompiler</dependency>
+                                <dependency>org.finos.legend.engine:legend-engine-pure-runtime-java-extension-interpreted-functions-javaCompiler</dependency>
                                 <dependency>org.eclipse.collections:eclipse-collections</dependency>
                             </ignoredUnusedDeclaredDependencies>
                         </configuration>
@@ -103,6 +124,63 @@
         <dependency>
             <groupId>org.finos.legend.pure</groupId>
             <artifactId>legend-pure-runtime-java-engine-interpreted</artifactId>
+        </dependency>
+
+        <!-- Pure IDE Light core interpreted execution extensions -->
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-pure-runtime-java-extension-interpreted-functions-standard</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-pure-runtime-java-extension-interpreted-functions-unclassified</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-pure-runtime-java-extension-interpreted-functions-json</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-pure-runtime-java-extension-interpreted-functions-relation</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.pure</groupId>
+            <artifactId>legend-pure-runtime-java-extension-interpreted-store-relational</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.pure</groupId>
+            <artifactId>legend-pure-runtime-java-extension-interpreted-dsl-tds</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-pure-runtime-java-extension-interpreted-functions-planExecution</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-pure-runtime-java-extension-interpreted-functions-pureExtensions</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-pure-runtime-java-extension-compiled-functions-pureExtensions</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-pure-runtime-java-extension-interpreted-functions-legendCompiler</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-pure-runtime-java-extension-interpreted-functions-javaCompiler</artifactId>
+            <scope>runtime</scope>
         </dependency>
 
         <!-- Eclipse collections -->

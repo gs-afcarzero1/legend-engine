@@ -14,6 +14,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as vscode from 'vscode';
 import { workspace, ExtensionContext, Uri, commands, window } from 'vscode';
 import {
@@ -95,10 +96,51 @@ export function activate(context: ExtensionContext): void {
                     out.appendLine(result.output || '(no output)');
                     out.appendLine('\n--- Execution complete ---');
                 } else {
-                    out.appendLine('ERROR: ' + (result.error || 'Unknown error'));
+                    out.appendLine(result.output || result.error || 'Unknown error');
                 }
             } catch (e: any) {
                 out.appendLine('ERROR: ' + (e.message || e));
+            }
+        })
+    );
+
+    context.subscriptions.push(
+        commands.registerCommand('legend.setServerJarPath', async () => {
+            const config = workspace.getConfiguration('legendPure');
+            const configuredPath = config.get<string>('server.jarPath') || '';
+            const expandedPath = configuredPath ? expandConfiguredPath(configuredPath) : undefined;
+            const defaultUri = expandedPath && fs.existsSync(expandedPath)
+                ? Uri.file(path.dirname(expandedPath))
+                : workspace.workspaceFolders?.[0]?.uri;
+
+            const selected = await window.showOpenDialog({
+                title: 'Select Legend Pure LSP Server JAR',
+                defaultUri,
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false,
+                filters: {
+                    'JAR files': ['jar'],
+                },
+            });
+
+            const jarUri = selected?.[0];
+            if (!jarUri) {
+                return;
+            }
+
+            const target = workspace.workspaceFolders
+                ? vscode.ConfigurationTarget.Workspace
+                : vscode.ConfigurationTarget.Global;
+            await config.update('server.jarPath', jarUri.fsPath, target);
+
+            const reload = 'Reload Window';
+            const choice = await window.showInformationMessage(
+                'Legend Pure LSP server JAR path updated. Reload the window to restart the server with this JAR.',
+                reload
+            );
+            if (choice === reload) {
+                await commands.executeCommand('workbench.action.reloadWindow');
             }
         })
     );
@@ -178,8 +220,15 @@ function resolveServerJar(): string | undefined {
     // 1. Check user configuration
     const config = workspace.getConfiguration('legendPure');
     const configuredPath = config.get<string>('server.jarPath');
-    if (configuredPath && fs.existsSync(configuredPath)) {
-        return configuredPath;
+    if (configuredPath && configuredPath.trim()) {
+        const expandedPath = expandConfiguredPath(configuredPath);
+        if (fs.existsSync(expandedPath) && fs.statSync(expandedPath).isFile()) {
+            return expandedPath;
+        }
+        window.showErrorMessage(
+            `Legend Pure LSP: configured server JAR does not exist or is not a file: ${expandedPath}`
+        );
+        return undefined;
     }
 
     // 2. Look for the JAR relative to this extension (sibling Maven module)
@@ -250,6 +299,24 @@ function resolveServerJar(): string | undefined {
     }
 
     return undefined;
+}
+
+function expandConfiguredPath(configuredPath: string): string {
+    let expanded = configuredPath.trim();
+    if (expanded === '~') {
+        expanded = os.homedir();
+    } else if (expanded.startsWith('~/')) {
+        expanded = path.join(os.homedir(), expanded.slice(2));
+    }
+
+    const firstWorkspaceFolder = workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (firstWorkspaceFolder) {
+        expanded = expanded.replace(/\$\{workspaceFolder\}/g, firstWorkspaceFolder);
+    }
+
+    return path.isAbsolute(expanded)
+        ? expanded
+        : path.resolve(firstWorkspaceFolder || process.cwd(), expanded);
 }
 
 // ── LLM Tool Registration ──────────────────────────────────────────
@@ -323,7 +390,7 @@ function registerLanguageModelTools(context: ExtensionContext): void {
                     await readyClient.sendRequest('legend/executeGo');
                 const text = result.success
                     ? (result.output || '(no output)')
-                    : `ERROR: ${result.error || 'Unknown error'}`;
+                    : (result.output || result.error || 'Unknown error');
                 return new vscode.LanguageModelToolResult([
                     new vscode.LanguageModelTextPart(text),
                 ]);
