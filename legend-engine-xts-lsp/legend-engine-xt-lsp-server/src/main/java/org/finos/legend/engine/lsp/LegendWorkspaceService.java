@@ -20,8 +20,6 @@ import java.util.concurrent.CompletableFuture;
 import org.eclipse.lsp4j.DidChangeConfigurationParams;
 import org.eclipse.lsp4j.DidChangeWatchedFilesParams;
 import org.eclipse.lsp4j.ExecuteCommandParams;
-import org.eclipse.lsp4j.MessageParams;
-import org.eclipse.lsp4j.MessageType;
 import org.eclipse.lsp4j.SymbolInformation;
 import org.eclipse.lsp4j.WorkspaceSymbol;
 import org.eclipse.lsp4j.WorkspaceSymbolParams;
@@ -48,7 +46,7 @@ public class LegendWorkspaceService implements WorkspaceService
     @Override
     public CompletableFuture<Either<List<? extends SymbolInformation>, List<? extends WorkspaceSymbol>>> symbol(WorkspaceSymbolParams params)
     {
-        return CompletableFuture.supplyAsync(() ->
+        return this.server.supplyAsync(() ->
         {
             LegendPureSession session = this.server.getSession();
             if (session == null || !session.isInitialized())
@@ -56,7 +54,6 @@ public class LegendWorkspaceService implements WorkspaceService
                 return Either.forLeft(Collections.emptyList());
             }
 
-            // Use the pre-built index — no tree walking, no session lock needed
             List<SymbolInformation> symbols = this.server.getSymbolProvider().search(
                     this.server.getUriMapper(),
                     params.getQuery(),
@@ -74,8 +71,7 @@ public class LegendWorkspaceService implements WorkspaceService
     @Override
     public void didChangeWatchedFiles(DidChangeWatchedFilesParams params)
     {
-        // Run async to avoid blocking the LSP message thread
-        CompletableFuture.runAsync(() -> handleFileChanges(params));
+        this.server.runAsync(() -> handleFileChanges(params));
     }
 
     private void handleFileChanges(DidChangeWatchedFilesParams params)
@@ -94,7 +90,12 @@ public class LegendWorkspaceService implements WorkspaceService
             return;
         }
 
-        LegendPureSession.CompileResult result = session.applyBulkChangesAndCompile(changes);
+        if (this.server.getMutationService() == null)
+        {
+            return;
+        }
+
+        LegendPureSession.CompileResult result = this.server.getMutationService().applyBulkChangesAndCompile(changes);
 
         if (result.isInternalError())
         {
@@ -107,41 +108,28 @@ public class LegendWorkspaceService implements WorkspaceService
         {
             for (LegendPureSession.FileChange change : changes)
             {
-                String uri = this.server.getUriMapper().toUri(change.sourceId);
+                String uri = this.server.getUriMapper().toUri(change.getSourceId());
                 if (uri != null)
                 {
-                    DiagnosticsPublisher.clear(this.server.getClient(), uri);
+                    this.server.getDiagnosticService().clear(uri);
                 }
             }
-            // Rebuild symbol index after bulk changes
             this.server.getSymbolProvider().buildIndex(session.getPureRuntime());
         }
         else if (!result.isInternalError() && result.getError() != null)
         {
-            // Publish diagnostic on the file that actually has the error,
-            // not on every changed file.
-            String errorUri = DiagnosticsPublisher.resolveErrorUri(
-                    result.getError(), this.server.getUriMapper());
-            if (errorUri != null)
+            String fallbackUri = null;
+            for (LegendPureSession.FileChange change : changes)
             {
-                DiagnosticsPublisher.publish(
-                        this.server.getClient(), errorUri,
-                        DiagnosticsPublisher.fromException(result.getError()));
-            }
-            else
-            {
-                // Fallback: no source info, publish on first changed file
-                for (LegendPureSession.FileChange change : changes)
+                fallbackUri = this.server.getUriMapper().toUri(change.getSourceId());
+                if (fallbackUri != null)
                 {
-                    String uri = this.server.getUriMapper().toUri(change.sourceId);
-                    if (uri != null)
-                    {
-                        DiagnosticsPublisher.publish(
-                                this.server.getClient(), uri,
-                                DiagnosticsPublisher.fromException(result.getError()));
-                        break;
-                    }
+                    break;
                 }
+            }
+            if (fallbackUri != null)
+            {
+                this.server.getDiagnosticService().publishException(fallbackUri, result.getError(), session);
             }
         }
     }
@@ -151,48 +139,8 @@ public class LegendWorkspaceService implements WorkspaceService
     {
         if (CMD_REINDEX.equals(params.getCommand()))
         {
-            return CompletableFuture.supplyAsync(() ->
-            {
-                reindex();
-                return null;
-            });
+            return this.server.reindex().thenApply(ignored -> null);
         }
         return CompletableFuture.completedFuture(null);
-    }
-
-    private void reindex()
-    {
-        LegendPureSession session = this.server.getSession();
-        if (session == null)
-        {
-            return;
-        }
-        this.server.getClient().showMessage(new MessageParams(MessageType.Info, "Pure LSP: reindexing..."));
-        try
-        {
-            // Bug fix: rescan workspace roots so newly added/removed repos are discovered
-            this.server.getUriMapper().clear();
-            this.server.rescanWorkspaceRoots();
-
-            session.reinitialize();
-
-            // Bug fix: rewire UriMapper to new PureRuntime after reinitialize
-            this.server.getUriMapper().setPureRuntime(session.getPureRuntime());
-
-            // Rebuild symbol index
-            this.server.getSymbolProvider().buildIndex(session.getPureRuntime());
-
-            // Bug fix: replay unsaved editor buffers so the runtime matches
-            // what the user sees on screen
-            ((LegendTextDocumentService) this.server.getTextDocumentService()).compileOpenDocuments();
-
-            // Client listens for showMessage to trigger cache clear
-            this.server.getClient().showMessage(new MessageParams(MessageType.Info, "Pure LSP: reindex complete"));
-        }
-        catch (Exception e)
-        {
-            LOGGER.error("Reindex failed", e);
-            this.server.getClient().showMessage(new MessageParams(MessageType.Error, "Pure LSP reindex failed: " + e.getMessage()));
-        }
     }
 }

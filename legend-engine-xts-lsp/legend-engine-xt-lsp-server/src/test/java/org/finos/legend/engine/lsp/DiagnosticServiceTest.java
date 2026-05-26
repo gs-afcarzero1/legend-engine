@@ -18,19 +18,21 @@ import java.util.List;
 import org.eclipse.lsp4j.Diagnostic;
 import org.eclipse.lsp4j.DiagnosticSeverity;
 import org.eclipse.lsp4j.Range;
+import org.finos.legend.engine.lsp.diagnostics.DiagnosticService;
 import org.finos.legend.pure.m4.coreinstance.SourceInformation;
-import org.finos.legend.pure.m4.exception.PureException;
 import org.finos.legend.pure.m4.serialization.grammar.antlr.PureParserException;
 import org.junit.Assert;
 import org.junit.Test;
 
-public class DiagnosticsPublisherTest
+public class DiagnosticServiceTest
 {
+    private final DiagnosticService diagnostics = new DiagnosticService(null, new UriMapper());
+
     @Test
     public void toRange_convertsOneBasedToZeroBased()
     {
         SourceInformation si = new SourceInformation("test.pure", 3, 5, 3, 10);
-        Range range = DiagnosticsPublisher.toRange(si);
+        Range range = SourceInfoUtil.toRange(si);
 
         Assert.assertEquals(2, range.getStart().getLine());
         Assert.assertEquals(4, range.getStart().getCharacter());
@@ -42,7 +44,7 @@ public class DiagnosticsPublisherTest
     public void toRange_handlesLineOne()
     {
         SourceInformation si = new SourceInformation("test.pure", 1, 1, 1, 5);
-        Range range = DiagnosticsPublisher.toRange(si);
+        Range range = SourceInfoUtil.toRange(si);
 
         Assert.assertEquals(0, range.getStart().getLine());
         Assert.assertEquals(0, range.getStart().getCharacter());
@@ -52,7 +54,7 @@ public class DiagnosticsPublisherTest
     public void fromException_withPlainException_producesErrorAtFileStart()
     {
         Exception e = new RuntimeException("something broke");
-        List<Diagnostic> diagnostics = DiagnosticsPublisher.fromException(e);
+        List<Diagnostic> diagnostics = this.diagnostics.fromException(e);
 
         Assert.assertEquals(1, diagnostics.size());
         Diagnostic d = diagnostics.get(0);
@@ -68,7 +70,7 @@ public class DiagnosticsPublisherTest
     {
         SourceInformation si = new SourceInformation("test.pure", 5, 3, 5, 8);
         PureParserException ppe = new PureParserException(si, "unexpected token");
-        List<Diagnostic> diagnostics = DiagnosticsPublisher.fromException(ppe);
+        List<Diagnostic> diagnostics = this.diagnostics.fromException(ppe);
 
         Assert.assertEquals(1, diagnostics.size());
         Diagnostic d = diagnostics.get(0);
@@ -83,7 +85,7 @@ public class DiagnosticsPublisherTest
         PureParserException inner = new PureParserException(si, "parse error");
         RuntimeException wrapper = new RuntimeException("wrapped", inner);
 
-        List<Diagnostic> diagnostics = DiagnosticsPublisher.fromException(wrapper);
+        List<Diagnostic> diagnostics = this.diagnostics.fromException(wrapper);
         Assert.assertEquals(1, diagnostics.size());
         Assert.assertEquals(9, diagnostics.get(0).getRange().getStart().getLine());
     }

@@ -15,8 +15,6 @@
 package org.finos.legend.engine.lsp;
 
 import java.io.PrintStream;
-import java.lang.reflect.Array;
-import java.lang.reflect.Method;
 import java.net.URI;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -28,25 +26,37 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.Supplier;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import org.eclipse.lsp4j.CodeActionOptions;
 import org.eclipse.lsp4j.ExecuteCommandOptions;
 import org.eclipse.lsp4j.InitializeParams;
 import org.eclipse.lsp4j.InitializeResult;
 import org.eclipse.lsp4j.InitializedParams;
 import org.eclipse.lsp4j.MessageParams;
-import org.eclipse.lsp4j.MessageType;
 import org.eclipse.lsp4j.SemanticTokensLegend;
 import org.eclipse.lsp4j.SemanticTokensWithRegistrationOptions;
-import org.eclipse.lsp4j.SetTraceParams;
 import org.eclipse.lsp4j.ServerCapabilities;
+import org.eclipse.lsp4j.SetTraceParams;
 import org.eclipse.lsp4j.TextDocumentSyncKind;
 import org.eclipse.lsp4j.WorkspaceFolder;
-import org.eclipse.lsp4j.launch.LSPLauncher;
+import org.eclipse.lsp4j.jsonrpc.Launcher;
+import org.eclipse.lsp4j.jsonrpc.services.JsonRequest;
 import org.eclipse.lsp4j.services.LanguageClient;
 import org.eclipse.lsp4j.services.LanguageClientAware;
-import org.eclipse.lsp4j.jsonrpc.services.JsonRequest;
 import org.eclipse.lsp4j.services.LanguageServer;
 import org.eclipse.lsp4j.services.TextDocumentService;
 import org.eclipse.lsp4j.services.WorkspaceService;
+import org.finos.legend.engine.lsp.diagnostics.DiagnosticService;
+import org.finos.legend.engine.lsp.mutation.SourceMutationService;
+import org.finos.legend.engine.lsp.protocol.ExecuteGoResult;
+import org.finos.legend.engine.lsp.protocol.LegendLanguageClient;
+import org.finos.legend.engine.lsp.protocol.LspStatus;
+import org.finos.legend.engine.lsp.runtime.PureRuntimeManager;
 import org.finos.legend.pure.m3.serialization.runtime.Source;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,39 +66,63 @@ public class LegendPureLspServer implements LanguageServer, LanguageClientAware
     private static final Logger LOGGER = LoggerFactory.getLogger(LegendPureLspServer.class);
     private static final String VERSION = "0.3.0-2026-04-01";
 
-    private static final int MAX_RECOVERY_ATTEMPTS = 3;
+    private LanguageClient rawClient;
+    private LegendLanguageClient client;
+    private DiagnosticService diagnosticService;
 
-    private LanguageClient client;
-    private volatile LegendPureSession session;
-    private volatile int recoveryAttempts;
     private final UriMapper uriMapper = new UriMapper();
     private final RepositoryScanner repositoryScanner = new RepositoryScanner();
     private final WorkspaceSymbolProvider symbolProvider = new WorkspaceSymbolProvider();
     private final LegendTextDocumentService textDocumentService;
     private final LegendWorkspaceService workspaceService;
-    private volatile List<Path> workspaceRoots = new ArrayList<>();
-    private volatile List<String> classpathRepositoryNames = Collections.emptyList();
+    private final PureRuntimeManager runtimeManager;
+    private final ExecutorService requestExecutor = Executors.newFixedThreadPool(4, r ->
+    {
+        Thread t = new Thread(r, "legend-pure-lsp-request");
+        t.setDaemon(true);
+        return t;
+    });
 
     public LegendPureLspServer()
     {
         this.textDocumentService = new LegendTextDocumentService(this);
+        this.runtimeManager = new PureRuntimeManager(
+                this.repositoryScanner,
+                this.uriMapper,
+                this.symbolProvider,
+                this.textDocumentService::compileOpenDocuments);
         this.workspaceService = new LegendWorkspaceService(this);
     }
 
     @Override
     public void connect(LanguageClient client)
     {
-        this.client = client;
+        this.rawClient = client;
+        this.client = (client instanceof LegendLanguageClient)
+                ? (LegendLanguageClient) client
+                : new LegendLanguageClientAdapter(client);
+        this.runtimeManager.setClient(this.client);
+        this.diagnosticService = new DiagnosticService(client, this.uriMapper);
     }
 
     LanguageClient getClient()
     {
-        return this.client;
+        return this.rawClient;
+    }
+
+    DiagnosticService getDiagnosticService()
+    {
+        return this.diagnosticService;
     }
 
     LegendPureSession getSession()
     {
-        return this.session;
+        return this.runtimeManager.getSession();
+    }
+
+    SourceMutationService getMutationService()
+    {
+        return this.runtimeManager.getMutationService();
     }
 
     UriMapper getUriMapper()
@@ -105,43 +139,173 @@ public class LegendPureLspServer implements LanguageServer, LanguageClientAware
     @SuppressWarnings("deprecation")
     public CompletableFuture<InitializeResult> initialize(InitializeParams params)
     {
-        // Capture workspace roots for repository scanning
-        this.workspaceRoots = extractWorkspaceRoots(params);
-        this.classpathRepositoryNames = extractClasspathRepositoryNames(params);
+        List<Path> workspaceRoots = extractWorkspaceRoots(params);
+        Set<String> classpathRepositoryNames = new LinkedHashSet<>(extractClasspathRepositoryNames(params));
+        this.runtimeManager.configure(workspaceRoots, classpathRepositoryNames);
+
         LspLog.info("Legend Pure LSP v" + VERSION + " starting");
-        LspLog.info("Workspace roots: " + this.workspaceRoots);
-        if (!this.classpathRepositoryNames.isEmpty())
-        {
-            LspLog.info("Classpath Pure repositories: " + this.classpathRepositoryNames);
-        }
+        LspLog.info("Workspace roots: " + workspaceRoots);
 
         ServerCapabilities caps = new ServerCapabilities();
         caps.setTextDocumentSync(TextDocumentSyncKind.Full);
-        caps.setCompletionProvider(new org.eclipse.lsp4j.CompletionOptions(false, java.util.Arrays.asList(":","$",".")));
+        caps.setCompletionProvider(new org.eclipse.lsp4j.CompletionOptions(false, Arrays.asList(":", "$", ".")));
         caps.setDefinitionProvider(true);
         caps.setReferencesProvider(true);
         caps.setHoverProvider(true);
         caps.setDocumentSymbolProvider(true);
         caps.setWorkspaceSymbolProvider(true);
+        caps.setCodeActionProvider(new CodeActionOptions(Collections.singletonList(org.eclipse.lsp4j.CodeActionKind.QuickFix)));
 
         SemanticTokensLegend legend = new SemanticTokensLegend(
                 SemanticTokensProvider.TOKEN_TYPES,
                 SemanticTokensProvider.TOKEN_MODIFIERS);
-        SemanticTokensWithRegistrationOptions semanticOpts =
-                new SemanticTokensWithRegistrationOptions(legend);
-        semanticOpts.setFull(true);
-        semanticOpts.setRange(false);
-        caps.setSemanticTokensProvider(semanticOpts);
-        caps.setExecuteCommandProvider(
-                new ExecuteCommandOptions(Arrays.asList(LegendWorkspaceService.CMD_REINDEX)));
+        SemanticTokensWithRegistrationOptions semanticOptions = new SemanticTokensWithRegistrationOptions(legend);
+        semanticOptions.setFull(true);
+        semanticOptions.setRange(false);
+        caps.setSemanticTokensProvider(semanticOptions);
+        caps.setExecuteCommandProvider(new ExecuteCommandOptions(Collections.singletonList(LegendWorkspaceService.CMD_REINDEX)));
         return CompletableFuture.completedFuture(new InitializeResult(caps));
+    }
+
+    @Override
+    public void initialized(InitializedParams params)
+    {
+        runAsync(this.runtimeManager::initialize);
+    }
+
+    void triggerRecovery()
+    {
+        runAsync(this.runtimeManager::triggerRecovery);
+    }
+
+    CompletableFuture<Void> reindex()
+    {
+        return runAsync(this.runtimeManager::reindex);
+    }
+
+    @Override
+    public void setTrace(SetTraceParams params)
+    {
+        // VS Code sends $/setTrace on every connection; the default LSP4J
+        // implementation throws UnsupportedOperationException.
+    }
+
+    @Override
+    public CompletableFuture<Object> shutdown()
+    {
+        this.textDocumentService.shutdown();
+        this.runtimeManager.shutdown();
+        this.requestExecutor.shutdownNow();
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public void exit()
+    {
+        System.exit(0);
+    }
+
+    @JsonRequest("legend/status")
+    public CompletableFuture<LspStatus> status()
+    {
+        return CompletableFuture.completedFuture(this.runtimeManager.currentStatus());
+    }
+
+    <T> CompletableFuture<T> supplyAsync(Supplier<T> supplier)
+    {
+        return CompletableFuture.supplyAsync(supplier, this.requestExecutor);
+    }
+
+    CompletableFuture<Void> runAsync(Runnable runnable)
+    {
+        return CompletableFuture.runAsync(runnable, this.requestExecutor);
+    }
+
+    @Override
+    public TextDocumentService getTextDocumentService()
+    {
+        return this.textDocumentService;
+    }
+
+    @Override
+    public WorkspaceService getWorkspaceService()
+    {
+        return this.workspaceService;
+    }
+
+    @JsonRequest("legend/getPackageChildren")
+    public CompletableFuture<List<PackageChildInfo>> getPackageChildren(String packagePath)
+    {
+        return supplyAsync(() ->
+        {
+            LegendPureSession session = getSession();
+            if (session == null || !session.isInitialized())
+            {
+                return Collections.<PackageChildInfo>emptyList();
+            }
+            synchronized (session)
+            {
+                return PackageTreeProvider.getChildren(session.getPureRuntime(), this.uriMapper, packagePath);
+            }
+        });
+    }
+
+    @JsonRequest("legend/executeGo")
+    public CompletableFuture<ExecuteGoResult> executeGo()
+    {
+        return supplyAsync(() ->
+        {
+            LegendPureSession session = getSession();
+            if (session == null || !session.isInitialized())
+            {
+                return new ExecuteGoResult(false, "Runtime not initialized", null);
+            }
+            synchronized (session)
+            {
+                LegendPureSession.ExecuteResult result = session.executeGo();
+                return new ExecuteGoResult(result.isSuccess(), result.getError(), result.getOutput());
+            }
+        });
+    }
+
+    @JsonRequest("legend/getSourceContent")
+    public CompletableFuture<String> getSourceContent(String sourceId)
+    {
+        return supplyAsync(() ->
+        {
+            LegendPureSession session = getSession();
+            if (session == null || !session.isInitialized())
+            {
+                return null;
+            }
+
+            String id = sourceId;
+            if (id.startsWith("pure://"))
+            {
+                id = id.substring("pure://".length());
+            }
+
+            String resolvedId = session.resolveSourceId(id);
+            if (resolvedId == null)
+            {
+                LspLog.debug("getSourceContent: unknown source ID: " + sourceId);
+                return null;
+            }
+
+            Source source = session.getPureRuntime().getSourceById(resolvedId);
+            if (source == null)
+            {
+                return null;
+            }
+
+            LspLog.debug("getSourceContent: serving " + resolvedId + " (" + source.getContent().length() + " chars)");
+            return source.getContent();
+        });
     }
 
     private static List<Path> extractWorkspaceRoots(InitializeParams params)
     {
         List<Path> roots = new ArrayList<>();
-
-        // Try workspaceFolders first (LSP 3.6+)
         List<WorkspaceFolder> folders = params.getWorkspaceFolders();
         if (folders != null)
         {
@@ -154,8 +318,6 @@ public class LegendPureLspServer implements LanguageServer, LanguageClientAware
                 }
             }
         }
-
-        // Fall back to rootUri (deprecated but widely used)
         if (roots.isEmpty() && params.getRootUri() != null)
         {
             Path path = uriToPath(params.getRootUri());
@@ -164,111 +326,7 @@ public class LegendPureLspServer implements LanguageServer, LanguageClientAware
                 roots.add(path);
             }
         }
-
         return roots;
-    }
-
-    static List<String> extractClasspathRepositoryNames(InitializeParams params)
-    {
-        if (params == null)
-        {
-            return Collections.emptyList();
-        }
-
-        Object initializationOptions = params.getInitializationOptions();
-        Object value = readOption(initializationOptions, "classpathRepositories");
-        if (value == null)
-        {
-            Object serverOptions = readOption(initializationOptions, "server");
-            value = readOption(serverOptions, "classpathRepositories");
-        }
-        return toStringList(value);
-    }
-
-    private static Object readOption(Object options, String property)
-    {
-        if (options == null)
-        {
-            return null;
-        }
-        if (options instanceof Map<?, ?>)
-        {
-            return ((Map<?, ?>) options).get(property);
-        }
-        try
-        {
-            Method get = options.getClass().getMethod("get", String.class);
-            return get.invoke(options, property);
-        }
-        catch (Exception ignored)
-        {
-            return null;
-        }
-    }
-
-    private static List<String> toStringList(Object value)
-    {
-        if (value == null)
-        {
-            return Collections.emptyList();
-        }
-
-        Set<String> values = new LinkedHashSet<>();
-        if (value instanceof Iterable<?>)
-        {
-            for (Object item : (Iterable<?>) value)
-            {
-                addStringValue(values, item);
-            }
-        }
-        else if (value.getClass().isArray())
-        {
-            int length = Array.getLength(value);
-            for (int i = 0; i < length; i++)
-            {
-                addStringValue(values, Array.get(value, i));
-            }
-        }
-        else
-        {
-            addStringValue(values, value);
-        }
-        return values.isEmpty() ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(values));
-    }
-
-    private static void addStringValue(Set<String> values, Object value)
-    {
-        String stringValue = toStringValue(value);
-        if (stringValue != null)
-        {
-            String trimmed = stringValue.trim();
-            if (!trimmed.isEmpty())
-            {
-                values.add(trimmed);
-            }
-        }
-    }
-
-    private static String toStringValue(Object value)
-    {
-        if (value == null || "JsonNull".equals(value.getClass().getSimpleName()))
-        {
-            return null;
-        }
-        if (value instanceof String)
-        {
-            return (String) value;
-        }
-        try
-        {
-            Method getAsString = value.getClass().getMethod("getAsString");
-            Object result = getAsString.invoke(value);
-            return result instanceof String ? (String) result : null;
-        }
-        catch (Exception ignored)
-        {
-            return String.valueOf(value);
-        }
     }
 
     private static Path uriToPath(String uri)
@@ -288,291 +346,93 @@ public class LegendPureLspServer implements LanguageServer, LanguageClientAware
         }
     }
 
-    @Override
-    public void initialized(InitializedParams params)
+    static List<String> extractClasspathRepositoryNames(InitializeParams params)
     {
-        this.client.showMessage(new MessageParams(MessageType.Info, "Pure LSP v" + VERSION + ": initializing runtime..."));
-        CompletableFuture.runAsync(() ->
+        if (params == null)
         {
-            try
-            {
-                // Scan workspace for repository definitions
-                if (!this.workspaceRoots.isEmpty())
-                {
-                    this.repositoryScanner.scan(this.workspaceRoots);
-                    this.uriMapper.setRepositoryScanner(this.repositoryScanner);
-                    LspLog.info("Mapped " + this.repositoryScanner.getMappings().size()
-                            + " repositories to filesystem paths");
-                }
-                else
-                {
-                    LspLog.warn("No workspace roots provided; source ID resolution will be limited");
-                }
+            return Collections.emptyList();
+        }
 
-                LspLog.info("Initializing PureRuntime...");
-                this.session = new LegendPureSession();
-                this.session.initialize(this.repositoryScanner, this.classpathRepositoryNames);
-                LspLog.info("PureRuntime initialized");
-
-                // Wire UriMapper to PureRuntime for direct storage queries
-                this.uriMapper.setPureRuntime(this.session.getPureRuntime());
-
-                // Build the workspace symbol index
-                LspLog.info("Building symbol index...");
-                this.symbolProvider.buildIndex(this.session.getPureRuntime());
-
-                // Compile any documents that were opened before the session was ready
-                this.textDocumentService.compileOpenDocuments();
-
-                this.client.showMessage(new MessageParams(MessageType.Info, "Pure LSP v" + VERSION + ": ready ("
-                        + this.repositoryScanner.getMappings().size() + " repos, "
-                        + this.symbolProvider.size() + " symbols)"));
-                LspLog.info("Pure LSP initialized successfully — "
-                        + this.symbolProvider.size() + " symbols indexed");
-            }
-            catch (Exception e)
-            {
-                LspLog.error("Pure LSP initialization FAILED: " + e.getMessage());
-                e.printStackTrace(System.err);
-                this.client.showMessage(new MessageParams(MessageType.Error, "Pure LSP failed: " + e.getMessage()));
-            }
-        });
+        Object initializationOptions = params.getInitializationOptions();
+        Object value = readOption(initializationOptions, "classpathRepositories");
+        if (value == null)
+        {
+            value = readOption(readOption(initializationOptions, "server"), "classpathRepositories");
+        }
+        return toStringList(value);
     }
 
-    /**
-     * Rescan workspace roots for repository definitions. Called during reindex
-     * to discover newly added/removed repos since startup.
-     */
-    void rescanWorkspaceRoots()
+    private static Object readOption(Object options, String property)
     {
-        this.repositoryScanner.clear();
-        if (!this.workspaceRoots.isEmpty())
+        if (options instanceof JsonObject)
         {
-            this.repositoryScanner.scan(this.workspaceRoots);
-            this.uriMapper.setRepositoryScanner(this.repositoryScanner);
+            JsonObject object = (JsonObject) options;
+            return object.has(property) ? object.get(property) : null;
+        }
+        if (options instanceof Map<?, ?>)
+        {
+            return ((Map<?, ?>) options).get(property);
+        }
+        return null;
+    }
+
+    private static List<String> toStringList(Object value)
+    {
+        Set<String> result = new LinkedHashSet<>();
+        if (value instanceof JsonArray)
+        {
+            for (JsonElement item : (JsonArray) value)
+            {
+                addStringValue(result, item);
+            }
+        }
+        else if (value instanceof Iterable<?>)
+        {
+            for (Object item : (Iterable<?>) value)
+            {
+                addStringValue(result, item);
+            }
+        }
+        else
+        {
+            addStringValue(result, value);
+        }
+        return result.isEmpty() ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(result));
+    }
+
+    private static void addStringValue(Set<String> result, Object value)
+    {
+        String stringValue = toStringValue(value);
+        if (stringValue != null)
+        {
+            String trimmed = stringValue.trim();
+            if (!trimmed.isEmpty())
+            {
+                result.add(trimmed);
+            }
         }
     }
 
-    /**
-     * Automatic recovery: reinitialize PureRuntime on a background thread
-     * after an internal error (NPE, IllegalState, etc.).
-     */
-    void triggerRecovery()
+    private static String toStringValue(Object value)
     {
-        if (this.recoveryAttempts >= MAX_RECOVERY_ATTEMPTS)
+        if (value == null || "JsonNull".equals(value.getClass().getSimpleName()))
         {
-            LOGGER.error("Max recovery attempts ({}) reached. Manual restart required.", MAX_RECOVERY_ATTEMPTS);
-            this.client.showMessage(new MessageParams(MessageType.Error,
-                    "Pure LSP: recovery failed " + MAX_RECOVERY_ATTEMPTS + " times. Please restart."));
-            return;
+            return null;
         }
-        this.recoveryAttempts++;
-
-        CompletableFuture.runAsync(() ->
+        if (value instanceof String)
         {
-            try
-            {
-                LOGGER.warn("Triggering automatic recovery (attempt {}/{})...", this.recoveryAttempts, MAX_RECOVERY_ATTEMPTS);
-                this.uriMapper.clear();
-                this.repositoryScanner.clear();
-                if (!this.workspaceRoots.isEmpty())
-                {
-                    this.repositoryScanner.scan(this.workspaceRoots);
-                    this.uriMapper.setRepositoryScanner(this.repositoryScanner);
-                }
-                if (this.session != null)
-                {
-                    this.session.reinitialize();
-                    // Bug fix: rewire UriMapper to new PureRuntime after reinitialize
-                    this.uriMapper.setPureRuntime(this.session.getPureRuntime());
-                    // Rebuild symbol index
-                    this.symbolProvider.buildIndex(this.session.getPureRuntime());
-                    // Bug fix: replay unsaved editor buffers so the runtime
-                    // matches what the user sees on screen
-                    this.textDocumentService.compileOpenDocuments();
-                }
-                this.recoveryAttempts = 0;
-                this.client.showMessage(new MessageParams(MessageType.Info, "Pure LSP: recovered"));
-            }
-            catch (Exception e)
-            {
-                LOGGER.error("Recovery failed", e);
-                this.client.showMessage(new MessageParams(MessageType.Error, "Pure LSP recovery failed: " + e.getMessage()));
-            }
-        });
-    }
-
-    @Override
-    public void setTrace(SetTraceParams params)
-    {
-        // No-op: VS Code sends $/setTrace on every connection; the default
-        // LSP4J implementation throws UnsupportedOperationException.
-    }
-
-    @Override
-    public CompletableFuture<Object> shutdown()
-    {
-        this.textDocumentService.shutdown();
-        return CompletableFuture.completedFuture(null);
-    }
-
-    @Override
-    public void exit()
-    {
-        System.exit(0);
-    }
-
-    @Override
-    public TextDocumentService getTextDocumentService()
-    {
-        return this.textDocumentService;
-    }
-
-    @Override
-    public WorkspaceService getWorkspaceService()
-    {
-        return this.workspaceService;
-    }
-
-    /**
-     * Custom request: get children of a Pure package for the tree view.
-     * Pass "" or "::" for root. Returns a list of PackageChildInfo objects.
-     */
-    @JsonRequest("legend/getPackageChildren")
-    public CompletableFuture<List<PackageChildInfo>> getPackageChildren(String packagePath)
-    {
-        return CompletableFuture.supplyAsync(() ->
-        {
-            LegendPureSession s = this.session;
-            if (s == null || !s.isInitialized())
-            {
-                return Collections.<PackageChildInfo>emptyList();
-            }
-
-            synchronized (s)
-            {
-                return PackageTreeProvider.getChildren(
-                        s.getPureRuntime(), this.uriMapper, packagePath);
-            }
-        });
-    }
-
-    /**
-     * Custom request: execute the go():Any[*] function and return the result.
-     */
-    @JsonRequest("legend/executeGo")
-    public CompletableFuture<ExecuteGoResult> executeGo()
-    {
-        return CompletableFuture.supplyAsync(() ->
-        {
-            LegendPureSession s = this.session;
-            if (s == null || !s.isInitialized())
-            {
-                return new ExecuteGoResult(false, "Runtime not initialized", null);
-            }
-
-            synchronized (s)
-            {
-                LegendPureSession.ExecuteResult result = s.executeGo();
-                return new ExecuteGoResult(result.isSuccess(), result.getError(), result.getOutput());
-            }
-        });
-    }
-
-    /**
-     * Custom request: return the content of a Pure source by its source ID.
-     * Used by the VS Code extension's FileSystemProvider for pure:// URIs.
-     */
-    @JsonRequest("legend/getSourceContent")
-    public CompletableFuture<String> getSourceContent(String sourceId)
-    {
-        return CompletableFuture.supplyAsync(() ->
-        {
-            LegendPureSession s = this.session;
-            if (s == null || !s.isInitialized())
-            {
-                return null;
-            }
-
-            // Normalize: pure:///core/... → /core/...
-            String id = sourceId;
-            if (id.startsWith("pure://"))
-            {
-                id = id.substring("pure://".length());
-            }
-
-            String resolvedId = s.resolveSourceId(id);
-            if (resolvedId == null)
-            {
-                LspLog.debug("getSourceContent: unknown source ID: " + sourceId);
-                return null;
-            }
-
-            Source source = s.getPureRuntime().getSourceById(resolvedId);
-            if (source == null)
-            {
-                return null;
-            }
-
-            LspLog.debug("getSourceContent: serving " + resolvedId + " (" + source.getContent().length() + " chars)");
-            return source.getContent();
-        });
-    }
-
-    // -- DTO for executeGo response --
-
-    public static class ExecuteGoResult
-    {
-        private boolean success;
-        private String error;
-        private String output;
-
-        public ExecuteGoResult()
-        {
+            return (String) value;
         }
-
-        ExecuteGoResult(boolean success, String error, String output)
+        if (value instanceof JsonElement)
         {
-            this.success = success;
-            this.error = error;
-            this.output = output;
+            JsonElement element = (JsonElement) value;
+            return element.isJsonPrimitive() && element.getAsJsonPrimitive().isString() ? element.getAsString() : null;
         }
-
-        public boolean isSuccess()
-        {
-            return success;
-        }
-
-        public void setSuccess(boolean success)
-        {
-            this.success = success;
-        }
-
-        public String getError()
-        {
-            return error;
-        }
-
-        public void setError(String error)
-        {
-            this.error = error;
-        }
-
-        public String getOutput()
-        {
-            return output;
-        }
-
-        public void setOutput(String output)
-        {
-            this.output = output;
-        }
+        return String.valueOf(value);
     }
 
     public static void main(String[] args) throws Exception
     {
-        // Capture stdout BEFORE any library code (e.g., SLF4J) can write to it,
-        // then redirect System.out to stderr so only JSON-RPC goes over stdout.
         PrintStream originalOut = new PrintStream(
                 new java.io.BufferedOutputStream(new java.io.FileOutputStream(java.io.FileDescriptor.out)), true);
         PrintStream stderrOut = new PrintStream(
@@ -580,25 +440,16 @@ public class LegendPureLspServer implements LanguageServer, LanguageClientAware
         System.setOut(stderrOut);
         System.setErr(stderrOut);
 
-        // Log which JAR we're running from, so misconfigurations are visible.
-        java.security.CodeSource cs = LegendPureLspServer.class.getProtectionDomain().getCodeSource();
-        String jarLocation = cs != null ? cs.getLocation().toString() : "unknown";
+        java.security.CodeSource codeSource = LegendPureLspServer.class.getProtectionDomain().getCodeSource();
+        String jarLocation = codeSource != null ? codeSource.getLocation().toString() : "unknown";
         System.err.println("[LSP] Running from: " + jarLocation);
 
-        // Eagerly load critical classes at startup. The JVM caches class-init
-        // failures permanently (NoClassDefFoundError is sticky), so if Gson or
-        // a provider class fails to load lazily on a concurrent request thread,
-        // ALL subsequent uses of that class fail for the lifetime of the process.
-        // Loading them here on the main thread ensures any failure is immediate
-        // and visible, and that the classes are ready before requests arrive.
         try
         {
-            // Dependency libraries
             Class.forName("com.google.gson.Gson");
             Class.forName("com.google.gson.internal.bind.NumberTypeAdapter");
             Class.forName("org.eclipse.collections.impl.block.procedure.MinComparatorProcedure");
             Class.forName("org.eclipse.lsp4j.adapters.SymbolInformationTypeAdapter");
-            // LSP provider classes
             Class.forName("org.finos.legend.engine.lsp.HoverProvider");
             Class.forName("org.finos.legend.engine.lsp.NavigationProvider");
             Class.forName("org.finos.legend.engine.lsp.ReferencesProvider");
@@ -616,9 +467,58 @@ public class LegendPureLspServer implements LanguageServer, LanguageClientAware
         }
 
         LegendPureLspServer server = new LegendPureLspServer();
-        org.eclipse.lsp4j.jsonrpc.Launcher<LanguageClient> launcher =
-                LSPLauncher.createServerLauncher(server, System.in, originalOut);
+        Launcher<LegendLanguageClient> launcher = new Launcher.Builder<LegendLanguageClient>()
+                .setLocalService(server)
+                .setRemoteInterface(LegendLanguageClient.class)
+                .setInput(System.in)
+                .setOutput(originalOut)
+                .create();
         server.connect(launcher.getRemoteProxy());
         launcher.startListening().get();
+    }
+
+    private static class LegendLanguageClientAdapter implements LegendLanguageClient
+    {
+        private final LanguageClient delegate;
+
+        private LegendLanguageClientAdapter(LanguageClient delegate)
+        {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void telemetryEvent(Object object)
+        {
+            this.delegate.telemetryEvent(object);
+        }
+
+        @Override
+        public void publishDiagnostics(org.eclipse.lsp4j.PublishDiagnosticsParams diagnostics)
+        {
+            this.delegate.publishDiagnostics(diagnostics);
+        }
+
+        @Override
+        public void showMessage(MessageParams messageParams)
+        {
+            this.delegate.showMessage(messageParams);
+        }
+
+        @Override
+        public CompletableFuture<org.eclipse.lsp4j.MessageActionItem> showMessageRequest(org.eclipse.lsp4j.ShowMessageRequestParams requestParams)
+        {
+            return this.delegate.showMessageRequest(requestParams);
+        }
+
+        @Override
+        public void logMessage(MessageParams message)
+        {
+            this.delegate.logMessage(message);
+        }
+
+        @Override
+        public void statusChanged(LspStatus status)
+        {
+        }
     }
 }

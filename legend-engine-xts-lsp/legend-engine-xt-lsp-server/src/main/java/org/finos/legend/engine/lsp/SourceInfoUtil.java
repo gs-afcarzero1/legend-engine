@@ -22,7 +22,7 @@ import org.finos.legend.pure.m4.coreinstance.SourceInformation;
 /**
  * Utility for converting Pure SourceInformation (1-based) to LSP positions (0-based).
  * Eliminates duplication across NavigationProvider, ReferencesProvider,
- * DiagnosticsPublisher, and WorkspaceSymbolProvider.
+ * diagnostics, and WorkspaceSymbolProvider.
  */
 public class SourceInfoUtil
 {

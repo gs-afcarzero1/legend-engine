@@ -58,9 +58,9 @@ public class FileChangeHandlerTest
 
         List<LegendPureSession.FileChange> changes = handler.toFileChanges(events);
         Assert.assertEquals(1, changes.size());
-        Assert.assertEquals(LegendPureSession.FileChangeType.DELETE, changes.get(0).type);
-        Assert.assertEquals("/core/model.pure", changes.get(0).sourceId);
-        Assert.assertNull(changes.get(0).content);
+        Assert.assertEquals(LegendPureSession.FileChangeType.DELETE, changes.get(0).getType());
+        Assert.assertEquals("/core/model.pure", changes.get(0).getSourceId());
+        Assert.assertNull(changes.get(0).getContent());
     }
 
     @Test
@@ -82,8 +82,8 @@ public class FileChangeHandlerTest
 
         List<LegendPureSession.FileChange> changes = handler.toFileChanges(events);
         Assert.assertEquals(1, changes.size());
-        Assert.assertEquals(LegendPureSession.FileChangeType.CREATE_OR_MODIFY, changes.get(0).type);
-        Assert.assertEquals("Class my::Test {}", changes.get(0).content);
+        Assert.assertEquals(LegendPureSession.FileChangeType.CREATE_OR_MODIFY, changes.get(0).getType());
+        Assert.assertEquals("Class my::Test {}", changes.get(0).getContent());
     }
 
     @Test

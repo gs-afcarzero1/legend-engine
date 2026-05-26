@@ -24,6 +24,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import org.eclipse.lsp4j.CodeAction;
+import org.eclipse.lsp4j.CodeActionParams;
+import org.eclipse.lsp4j.Command;
 import org.eclipse.lsp4j.CompletionItem;
 import org.eclipse.lsp4j.CompletionList;
 import org.eclipse.lsp4j.CompletionParams;
@@ -73,9 +76,6 @@ public class LegendTextDocumentService implements TextDocumentService
     public void didOpen(DidOpenTextDocumentParams params)
     {
         String uri = params.getTextDocument().getUri();
-        // Never compile pure:// sources — they are read-only classpath sources
-        // served by the virtual filesystem. Compiling them would create duplicate
-        // in-memory sources conflicting with the storage-backed originals.
         if (uri.startsWith("pure://"))
         {
             return;
@@ -108,28 +108,24 @@ public class LegendTextDocumentService implements TextDocumentService
         String uri = params.getTextDocument().getUri();
         this.openDocuments.remove(uri);
         cancelPending(uri);
-        DiagnosticsPublisher.clear(this.server.getClient(), uri);
-
-        // Restore the runtime to the on-disk state. Without this, unsaved edits
-        // stay live after the editor tab closes, affecting hover/definition/references.
+        this.server.getDiagnosticService().clear(uri);
         LegendPureSession session = this.server.getSession();
-        if (session != null && session.isInitialized() && !uri.startsWith("pure://"))
+        if (session != null && session.isInitialized() && this.server.getMutationService() != null && !uri.startsWith("pure://"))
         {
             String sourceId = this.server.getUriMapper().toSourceId(uri);
-            session.restoreFromDisk(sourceId);
+            this.server.getMutationService().restoreFromDisk(sourceId);
         }
     }
 
     @Override
     public void didSave(DidSaveTextDocumentParams params)
     {
-        // didChange already scheduled a compile; didSave is a no-op
     }
 
     @Override
     public CompletableFuture<Either<List<CompletionItem>, CompletionList>> completion(CompletionParams params)
     {
-        return CompletableFuture.supplyAsync(() ->
+        return this.server.supplyAsync(() ->
         {
             try
             {
@@ -143,7 +139,6 @@ public class LegendTextDocumentService implements TextDocumentService
                 int line = params.getPosition().getLine() + 1;
                 int column = params.getPosition().getCharacter();
 
-                // Get current file content from open documents or from the runtime
                 String content = this.openDocuments.get(uri);
 
                 String sourceId = this.server.getUriMapper().toSourceId(uri);
@@ -185,7 +180,7 @@ public class LegendTextDocumentService implements TextDocumentService
     @Override
     public CompletableFuture<Either<List<? extends Location>, List<? extends LocationLink>>> definition(DefinitionParams params)
     {
-        return CompletableFuture.supplyAsync(() ->
+        return this.server.supplyAsync(() ->
         {
             try
             {
@@ -206,7 +201,6 @@ public class LegendTextDocumentService implements TextDocumentService
                     return Either.<List<? extends Location>, List<? extends LocationLink>>forLeft(Collections.emptyList());
                 }
 
-                // Synchronize on session to avoid reading the graph while a compile mutates it
                 Location location;
                 synchronized (session)
                 {
@@ -236,7 +230,7 @@ public class LegendTextDocumentService implements TextDocumentService
     @Override
     public CompletableFuture<Hover> hover(HoverParams params)
     {
-        return CompletableFuture.supplyAsync(() ->
+        return this.server.supplyAsync(() ->
         {
             try
             {
@@ -273,7 +267,7 @@ public class LegendTextDocumentService implements TextDocumentService
     @Override
     public CompletableFuture<List<? extends Location>> references(ReferenceParams params)
     {
-        return CompletableFuture.supplyAsync(() ->
+        return this.server.supplyAsync(() ->
         {
             try
             {
@@ -318,7 +312,7 @@ public class LegendTextDocumentService implements TextDocumentService
     @Override
     public CompletableFuture<SemanticTokens> semanticTokensFull(SemanticTokensParams params)
     {
-        return CompletableFuture.supplyAsync(() ->
+        return this.server.supplyAsync(() ->
         {
             try
             {
@@ -331,7 +325,6 @@ public class LegendTextDocumentService implements TextDocumentService
                 String uri = params.getTextDocument().getUri();
                 if (uri.startsWith("pure://"))
                 {
-                    // For virtual files, derive source ID from pure:// path
                     String sourceId = uri.substring("pure://".length());
                     synchronized (session)
                     {
@@ -366,7 +359,7 @@ public class LegendTextDocumentService implements TextDocumentService
     @Override
     public CompletableFuture<List<Either<SymbolInformation, DocumentSymbol>>> documentSymbol(DocumentSymbolParams params)
     {
-        return CompletableFuture.supplyAsync(() ->
+        return this.server.supplyAsync(() ->
         {
             try
             {
@@ -412,9 +405,22 @@ public class LegendTextDocumentService implements TextDocumentService
         });
     }
 
-    /**
-     * Per-URI debounce: cancel any pending compile for this URI and schedule a new one.
-     */
+    @Override
+    public CompletableFuture<List<Either<Command, CodeAction>>> codeAction(CodeActionParams params)
+    {
+        return this.server.supplyAsync(() ->
+        {
+            String uri = params.getTextDocument().getUri();
+            if (this.server.getDiagnosticService() == null)
+            {
+                return Collections.<Either<Command, CodeAction>>emptyList();
+            }
+            return this.server.getDiagnosticService().codeActions(
+                    uri,
+                    params.getContext() == null ? Collections.emptyList() : params.getContext().getDiagnostics());
+        });
+    }
+
     private void scheduleCompile(String uri, String content)
     {
         cancelPending(uri);
@@ -443,12 +449,16 @@ public class LegendTextDocumentService implements TextDocumentService
             if (session == null || !session.isInitialized())
             {
                 LOGGER.debug("Session not ready, skipping compile for {}", uri);
-                // Store for later — will be compiled when session initializes
                 return;
             }
 
             String sourceId = this.server.getUriMapper().toSourceId(uri);
-            LegendPureSession.CompileResult result = session.modifyAndCompile(sourceId, content);
+            if (this.server.getMutationService() == null)
+            {
+                LOGGER.debug("Mutation service not ready, skipping compile for {}", uri);
+                return;
+            }
+            LegendPureSession.CompileResult result = this.server.getMutationService().modifyAndCompile(sourceId, content);
 
             handleResult(uri, result);
         }
@@ -477,16 +487,15 @@ public class LegendTextDocumentService implements TextDocumentService
 
         if (result.isSuccess())
         {
-            DiagnosticsPublisher.clear(this.server.getClient(), uri);
+            this.server.getDiagnosticService().clear(uri);
             for (String modifiedSourceId : result.getModifiedFiles())
             {
                 String modifiedUri = this.server.getUriMapper().toUri(modifiedSourceId);
                 if (modifiedUri != null)
                 {
-                    DiagnosticsPublisher.clear(this.server.getClient(), modifiedUri);
+                    this.server.getDiagnosticService().clear(modifiedUri);
                 }
             }
-            // Refresh symbol index after successful compilation
             LegendPureSession session = this.server.getSession();
             if (session != null)
             {
@@ -496,27 +505,10 @@ public class LegendTextDocumentService implements TextDocumentService
         else
         {
             LspLog.warn("Compile error for " + uri + ": " + result.getError().getMessage());
-            // Publish diagnostic on the file that actually has the error, not
-            // necessarily the file that was edited. The PureException carries
-            // SourceInformation pointing to the real error location.
-            String errorUri = DiagnosticsPublisher.resolveErrorUri(
-                    result.getError(), this.server.getUriMapper());
-            if (errorUri == null)
-            {
-                errorUri = uri;
-            }
-            DiagnosticsPublisher.publish(
-                    this.server.getClient(),
-                    errorUri,
-                    DiagnosticsPublisher.fromException(result.getError())
-            );
+            this.server.getDiagnosticService().publishException(uri, result.getError(), this.server.getSession());
         }
     }
 
-    /**
-     * Compile all documents that were opened before the session was ready.
-     * Called once after session initialization completes.
-     */
     void compileOpenDocuments()
     {
         for (Map.Entry<String, String> entry : this.openDocuments.entrySet())

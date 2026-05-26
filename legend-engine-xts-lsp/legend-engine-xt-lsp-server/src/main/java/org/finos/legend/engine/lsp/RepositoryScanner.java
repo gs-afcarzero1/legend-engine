@@ -14,8 +14,8 @@
 
 package org.finos.legend.engine.lsp;
 
-import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.Reader;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,6 +24,9 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.eclipse.collections.api.factory.Lists;
 import org.eclipse.collections.api.list.MutableList;
 import org.finos.legend.pure.m3.serialization.filesystem.repository.CodeRepository;
@@ -140,35 +143,21 @@ public class RepositoryScanner
 
     /**
      * Parse the "name" field from a definition.json file.
-     * Uses simple string parsing to avoid a JSON library dependency.
      */
     static String parseRepoName(Path file)
     {
-        try (BufferedReader reader = Files.newBufferedReader(file))
+        try (Reader reader = Files.newBufferedReader(file))
         {
-            String line;
-            while ((line = reader.readLine()) != null)
+            JsonObject definition = JsonParser.parseReader(reader).getAsJsonObject();
+            JsonElement name = definition.get("name");
+            if (name != null && name.isJsonPrimitive())
             {
-                int nameIdx = line.indexOf("\"name\"");
-                if (nameIdx >= 0)
-                {
-                    // Find the value after the colon
-                    int colonIdx = line.indexOf(':', nameIdx);
-                    if (colonIdx >= 0)
-                    {
-                        int firstQuote = line.indexOf('"', colonIdx + 1);
-                        int lastQuote = line.indexOf('"', firstQuote + 1);
-                        if (firstQuote >= 0 && lastQuote > firstQuote)
-                        {
-                            return line.substring(firstQuote + 1, lastQuote);
-                        }
-                    }
-                }
+                return name.getAsString();
             }
         }
-        catch (IOException e)
+        catch (Exception e)
         {
-            LOGGER.warn("Failed to read definition file: {}", file, e);
+            LOGGER.warn("Failed to parse definition file: {}", file, e);
         }
         return null;
     }
@@ -227,7 +216,7 @@ public class RepositoryScanner
      * Returns null if the path is not inside any known repo.
      *
      * Example: /home/user/.../src/main/resources/core_relational/tests/model.pure
-     *   → /core_relational/tests/model.pure
+     *   -> /core_relational/tests/model.pure
      */
     public String deriveSourceIdFromPath(Path filePath)
     {
@@ -270,7 +259,6 @@ public class RepositoryScanner
                 Path repoDir = resourcesRoot.resolve(repoName);
                 if (!java.nio.file.Files.isDirectory(repoDir))
                 {
-                    // Repo directory doesn't exist — skip
                     LOGGER.warn("Repo directory not found: {}", repoDir);
                     continue;
                 }

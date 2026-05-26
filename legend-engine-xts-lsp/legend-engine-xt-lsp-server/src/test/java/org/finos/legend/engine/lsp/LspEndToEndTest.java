@@ -19,6 +19,10 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import org.eclipse.lsp4j.CodeAction;
+import org.eclipse.lsp4j.CodeActionContext;
+import org.eclipse.lsp4j.CodeActionParams;
+import org.eclipse.lsp4j.Command;
 import org.eclipse.lsp4j.Diagnostic;
 import org.eclipse.lsp4j.DidOpenTextDocumentParams;
 import org.eclipse.lsp4j.DidChangeTextDocumentParams;
@@ -32,6 +36,7 @@ import org.eclipse.lsp4j.MessageActionItem;
 import org.eclipse.lsp4j.MessageParams;
 import org.eclipse.lsp4j.Position;
 import org.eclipse.lsp4j.PublishDiagnosticsParams;
+import org.eclipse.lsp4j.Range;
 import org.eclipse.lsp4j.ShowMessageRequestParams;
 import org.eclipse.lsp4j.SymbolInformation;
 import org.eclipse.lsp4j.TextDocumentContentChangeEvent;
@@ -173,6 +178,55 @@ public class LspEndToEndTest
         PublishDiagnosticsParams last = published.get(published.size() - 1);
         Assert.assertTrue("Fixed code should have no diagnostics, got: " + last.getDiagnostics(),
                 last.getDiagnostics().isEmpty());
+    }
+
+    @Test
+    public void codeAction_unresolvedType_returnsImportQuickFix() throws Exception
+    {
+        mockClient.clearDiagnostics();
+        long ts = System.currentTimeMillis();
+        String typeName = "QuickFixTarget" + ts;
+        String definingUri = "file:///workspace/src/main/resources/e2e_quickfix_target_" + ts + ".pure";
+        String useUri = "file:///workspace/src/main/resources/e2e_quickfix_use_" + ts + ".pure";
+
+        server.getTextDocumentService().didOpen(new DidOpenTextDocumentParams(
+                new TextDocumentItem(definingUri, "pure", 1,
+                        "Class test::e2e::quickfix::model::" + typeName + "\n{\n  name: String[1];\n}\n")
+        ));
+        Thread.sleep(1500);
+
+        server.getTextDocumentService().didOpen(new DidOpenTextDocumentParams(
+                new TextDocumentItem(useUri, "pure", 1,
+                        "import test::e2e::other::*;\n\n" +
+                                "Class test::e2e::quickfix::use::NeedsImport" + ts + "\n{\n" +
+                                "  value: " + typeName + "[1];\n}\n")
+        ));
+        Thread.sleep(1500);
+
+        List<PublishDiagnosticsParams> published = mockClient.getDiagnosticsFor(useUri);
+        Assert.assertFalse("Should publish unresolved type diagnostic", published.isEmpty());
+        List<Diagnostic> diagnostics = published.get(published.size() - 1).getDiagnostics();
+        Assert.assertFalse("Expected diagnostic list to be non-empty", diagnostics.isEmpty());
+
+        CodeActionParams params = new CodeActionParams();
+        params.setTextDocument(new TextDocumentIdentifier(useUri));
+        params.setRange(new Range(new Position(0, 0), new Position(0, 0)));
+        params.setContext(new CodeActionContext(diagnostics));
+
+        List<Either<Command, CodeAction>> actions = server.getTextDocumentService().codeAction(params).get(10, TimeUnit.SECONDS);
+        Assert.assertFalse("Should return at least one import quick fix", actions.isEmpty());
+
+        boolean foundImport = false;
+        for (Either<Command, CodeAction> actionOrCommand : actions)
+        {
+            CodeAction action = actionOrCommand.getRight();
+            if (action != null && action.getTitle().contains(typeName))
+            {
+                foundImport = true;
+                break;
+            }
+        }
+        Assert.assertTrue("Should include import quick fix for " + typeName, foundImport);
     }
 
     @Test

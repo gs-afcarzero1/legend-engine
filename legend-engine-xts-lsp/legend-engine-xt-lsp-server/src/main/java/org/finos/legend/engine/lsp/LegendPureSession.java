@@ -26,10 +26,8 @@ import java.util.List;
 import java.util.Set;
 import org.eclipse.collections.api.factory.Lists;
 import org.eclipse.collections.api.list.MutableList;
-import org.eclipse.collections.api.tuple.Pair;
 import org.eclipse.collections.impl.list.mutable.FastList;
-import org.eclipse.collections.impl.tuple.Tuples;
-import org.finos.legend.pure.m3.SourceMutation;
+import org.finos.legend.engine.lsp.mutation.SourceMutationService;
 import org.finos.legend.pure.m3.execution.Console;
 import org.finos.legend.pure.m3.execution.FunctionExecution;
 import org.finos.legend.pure.m3.exception.PureExecutionException;
@@ -53,32 +51,21 @@ public class LegendPureSession
     private volatile PureRuntime pureRuntime;
     private volatile FunctionExecution functionExecution;
     private volatile boolean initialized;
+    private final SourceMutationService mutationService = new SourceMutationService(this);
 
     private volatile RepositoryScanner workspaceScanner;
     private volatile Set<String> classpathRepositoryNames = Collections.emptySet();
 
-    /**
-     * Initialize with ClassLoaderCodeStorage only (tests, CI, no workspace).
-     */
     public void initialize()
     {
         initialize(null);
     }
 
-    /**
-     * Initialize with hybrid storage:
-     * - MutableFSCodeStorage for every repo found on disk in the workspace
-     * - ClassLoaderCodeStorage for platform/null repos and explicitly configured classpath repos
-     * - No overlap: workspace repos win over classpath repos with the same name
-     */
     public void initialize(RepositoryScanner scanner)
     {
-        initialize(scanner, Collections.emptyList());
+        initialize(scanner, this.classpathRepositoryNames);
     }
 
-    /**
-     * Initialize with workspace repositories from disk and selected repositories from classpath.
-     */
     public void initialize(RepositoryScanner scanner, Collection<String> classpathRepositoryNames)
     {
         long start = System.currentTimeMillis();
@@ -90,7 +77,6 @@ public class LegendPureSession
 
         if (scanner != null && !scanner.getMappings().isEmpty())
         {
-            // Step 1: Filesystem storage for all workspace repos
             MutableList<RepositoryCodeStorage> workspaceStorages = scanner.buildWorkspaceStorages();
             storages.addAll(workspaceStorages);
             workspaceRepoNames = scanner.getWorkspaceRepoNames();
@@ -98,9 +84,6 @@ public class LegendPureSession
                     + " workspace repos (MutableFS from disk)");
         }
 
-        // Step 2: ClassLoader storage for platform/null repos and configured extension repos.
-        // Non-platform extension repos are opt-in to avoid loading stale classpath copies
-        // when the developer does not have that repo checked out.
         org.eclipse.collections.api.RichIterable<CodeRepository> classpathRepos =
                 CodeRepositoryProviderHelper.findCodeRepositories();
         Set<String> finalWorkspaceNames = workspaceRepoNames;
@@ -124,12 +107,8 @@ public class LegendPureSession
             }
             else if (!finalWorkspaceNames.contains(name))
             {
-                // Non-platform repo not on disk — skip it entirely.
-                // It's an extension the developer doesn't have checked out.
-                // Better to skip than to load a stale JAR version.
                 LspLog.debug("Skipping repo not on disk: " + name);
             }
-            // else: repo is on disk (in workspaceRepoNames) — already loaded via MutableFS
         }
         if (!classpathStorageRepos.isEmpty())
         {
@@ -178,221 +157,31 @@ public class LegendPureSession
         initialize(this.workspaceScanner, this.classpathRepositoryNames);
     }
 
-    /**
-     * Restore a source to its on-disk state after the editor closes without saving.
-     * For storage-backed sources, reloads from disk and recompiles.
-     * For in-memory scratch sources, deletes them from the runtime.
-     */
+    public synchronized void setClasspathRepositoryNames(Collection<String> classpathRepositoryNames)
+    {
+        this.classpathRepositoryNames = normalizeRepositoryNames(classpathRepositoryNames);
+    }
+
+    public SourceMutationService getMutationService()
+    {
+        return this.mutationService;
+    }
+
     public synchronized void restoreFromDisk(String sourceId)
     {
-        if (!this.initialized || sourceId == null)
-        {
-            return;
-        }
-        try
-        {
-            String resolvedId = resolveSourceId(sourceId);
-            if (resolvedId == null)
-            {
-                return;
-            }
-            org.finos.legend.pure.m3.serialization.runtime.Source source =
-                    this.pureRuntime.getSourceById(resolvedId);
-            if (source == null)
-            {
-                return;
-            }
-            if (source.isImmutable())
-            {
-                return;
-            }
-            if (source.isInMemory())
-            {
-                // Scratch file — delete from runtime
-                this.pureRuntime.delete(resolvedId);
-                this.pureRuntime.compile();
-            }
-            else
-            {
-                // Storage-backed file — reload from disk and recompile
-                String diskContent = this.pureRuntime.getCodeStorage()
-                        .getContentAsText(resolvedId);
-                if (diskContent != null && !diskContent.equals(source.getContent()))
-                {
-                    this.pureRuntime.modify(resolvedId, diskContent);
-                    this.pureRuntime.compile();
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            LspLog.debug("restoreFromDisk failed for " + sourceId + ": " + e.getMessage());
-        }
+        this.mutationService.restoreFromDisk(sourceId);
     }
 
     public synchronized CompileResult modifyAndCompile(String sourceId, String content)
     {
-        if (!this.initialized)
-        {
-            return CompileResult.notReady();
-        }
-        try
-        {
-            SourceMutation mutation;
-            // Resolve the effective source ID: check both /path and path (with/without leading /)
-            String resolvedId = resolveSourceId(sourceId);
-
-            if (resolvedId == null && sourceId.startsWith("/"))
-            {
-                try
-                {
-                    this.pureRuntime.loadSourceIfLoadable(sourceId);
-                    resolvedId = sourceId;
-                }
-                catch (Exception ignored)
-                {
-                    // Source not in any repository
-                }
-            }
-
-            // If the source ID is a bare filename (strategy 3 fallback from UriMapper),
-            // check if a storage source exists with a matching filename suffix.
-            // This prevents creating duplicate in-memory sources for files that are
-            // already loaded by MutableFSCodeStorage under their full path.
-            if (resolvedId == null && !sourceId.startsWith("/") && !sourceId.contains("/"))
-            {
-                String matchingSuffix = "/" + sourceId;
-                for (org.finos.legend.pure.m3.serialization.runtime.Source s :
-                        this.pureRuntime.getSourceRegistry().getSources())
-                {
-                    if (s.getId().endsWith(matchingSuffix))
-                    {
-                        resolvedId = s.getId();
-                        LOGGER.info("Matched bare filename '{}' to storage source '{}'", sourceId, resolvedId);
-                        break;
-                    }
-                }
-            }
-
-            if (resolvedId != null)
-            {
-                // Guard: never modify immutable/platform sources.
-                // These are pre-compiled and use bootstrap syntax that the parser can't handle.
-                org.finos.legend.pure.m3.serialization.runtime.Source existingSource =
-                        this.pureRuntime.getSourceById(resolvedId);
-                if (existingSource != null && existingSource.isImmutable())
-                {
-                    LspLog.debug("Skipping modification of immutable source: " + resolvedId);
-                    return CompileResult.success(Collections.emptyList());
-                }
-                String originalContent = (existingSource != null) ? existingSource.getContent() : null;
-
-                this.pureRuntime.modify(resolvedId, content);
-                try
-                {
-                    mutation = this.pureRuntime.compile();
-                }
-                catch (Exception compileError)
-                {
-                    // Restore original content to prevent state pollution to other files.
-                    // The error is still reported to the user, but the runtime stays clean.
-                    if (originalContent != null)
-                    {
-                        try
-                        {
-                            this.pureRuntime.modify(resolvedId, originalContent);
-                            this.pureRuntime.compile();
-                            LOGGER.info("Restored original content for {} after compile failure", resolvedId);
-                        }
-                        catch (Exception restoreError)
-                        {
-                            LOGGER.warn("Failed to restore original content for {}, runtime may be inconsistent",
-                                    resolvedId, restoreError);
-                        }
-                    }
-                    throw compileError;
-                }
-            }
-            else
-            {
-                // New source: create in memory (bare name, no leading /)
-                String inMemoryId = sourceId.startsWith("/") ? sourceId.substring(1) : sourceId;
-                mutation = this.pureRuntime.createInMemoryAndCompile(
-                        Tuples.pair(inMemoryId, content));
-            }
-            return CompileResult.success(mutation.getModifiedFiles());
-        }
-        catch (Exception e)
-        {
-            return toCompileResult(e);
-        }
+        return this.mutationService.modifyAndCompile(sourceId, content);
     }
 
-    /**
-     * Apply bulk file changes and compile once. All PureRuntime mutation
-     * is serialized through this synchronized method.
-     */
     public synchronized CompileResult applyBulkChangesAndCompile(List<FileChange> changes)
     {
-        if (!this.initialized)
-        {
-            return CompileResult.notReady();
-        }
-        try
-        {
-            for (FileChange change : changes)
-            {
-                switch (change.type)
-                {
-                    case DELETE:
-                        if (this.pureRuntime.getSourceById(change.sourceId) != null)
-                        {
-                            this.pureRuntime.delete(change.sourceId);
-                        }
-                        break;
-                    case CREATE_OR_MODIFY:
-                        if (this.pureRuntime.getSourceById(change.sourceId) == null && change.sourceId.startsWith("/"))
-                        {
-                            try
-                            {
-                                this.pureRuntime.loadSourceIfLoadable(change.sourceId);
-                            }
-                            catch (Exception ignored)
-                            {
-                                // Source not in any repository
-                            }
-                        }
-                        // Skip immutable/platform sources
-                        org.finos.legend.pure.m3.serialization.runtime.Source bulkSource =
-                                this.pureRuntime.getSourceById(change.sourceId);
-                        if (bulkSource != null && bulkSource.isImmutable())
-                        {
-                            break;
-                        }
-                        if (bulkSource == null)
-                        {
-                            this.pureRuntime.createInMemorySource(change.sourceId, change.content);
-                        }
-                        else
-                        {
-                            this.pureRuntime.modify(change.sourceId, change.content);
-                        }
-                        break; // createInMemorySource is batched; compile() runs after the loop
-                }
-            }
-            SourceMutation mutation = this.pureRuntime.compile();
-            return CompileResult.success(mutation.getModifiedFiles());
-        }
-        catch (Exception e)
-        {
-            return toCompileResult(e);
-        }
+        return this.mutationService.applyBulkChangesAndCompile(changes);
     }
 
-    /**
-     * Execute the go():Any[*] function and return its console output.
-     * The function must exist in the currently compiled sources.
-     */
     public synchronized ExecuteResult executeGo()
     {
         if (!this.initialized)
@@ -406,8 +195,6 @@ public class LegendPureSession
         {
             this.pureRuntime.compile();
 
-            // Look up the go() function. Try multiple signatures since the function
-            // may be defined with different return types.
             CoreInstance goFunction = this.pureRuntime.getFunction("go():Any[*]");
             if (goFunction == null)
             {
@@ -419,7 +206,6 @@ public class LegendPureSession
             }
             if (goFunction == null)
             {
-                // Try to find any function named "go" with no parameters
                 LOGGER.info("Could not find go() with standard signatures, searching model...");
                 CoreInstance goByPath = this.pureRuntime.getCoreInstance("go__Any_MANY_");
                 if (goByPath == null)
@@ -524,11 +310,6 @@ public class LegendPureSession
         return new String(baos.toByteArray(), StandardCharsets.UTF_8);
     }
 
-    /**
-     * Platform repos are Pure language primitives that live in legend-pure JARs.
-     * They are identified by name: "platform" or names starting with "platform_".
-     * These never exist in the legend-engine filesystem.
-     */
     private static boolean isPlatformRepo(String name)
     {
         return "platform".equals(name) || name.startsWith("platform_");
@@ -583,18 +364,12 @@ public class LegendPureSession
         return this.initialized;
     }
 
-    /**
-     * Resolve a source ID to an existing source in the registry.
-     * Checks both the ID as-is and with/without leading slash,
-     * because storage sources use "/" prefix and in-memory sources don't.
-     */
     public String resolveSourceId(String sourceId)
     {
         if (this.pureRuntime.getSourceById(sourceId) != null)
         {
             return sourceId;
         }
-        // Try the alternate form: /foo -> foo, or foo -> /foo
         String alt = sourceId.startsWith("/") ? sourceId.substring(1) : "/" + sourceId;
         if (this.pureRuntime.getSourceById(alt) != null)
         {
@@ -602,14 +377,6 @@ public class LegendPureSession
         }
         return null;
     }
-
-    private static CompileResult toCompileResult(Exception e)
-    {
-        boolean isInternal = PureException.findPureException(e) == null;
-        return CompileResult.error(e, isInternal);
-    }
-
-    // -- Inner types --
 
     public static class ExecuteResult
     {
@@ -648,15 +415,30 @@ public class LegendPureSession
 
     public static class FileChange
     {
-        final String sourceId;
-        final String content; // null for DELETE
-        final FileChangeType type;
+        private final String sourceId;
+        private final String content;
+        private final FileChangeType type;
 
         public FileChange(String sourceId, String content, FileChangeType type)
         {
             this.sourceId = sourceId;
             this.content = content;
             this.type = type;
+        }
+
+        public String getSourceId()
+        {
+            return this.sourceId;
+        }
+
+        public String getContent()
+        {
+            return this.content;
+        }
+
+        public FileChangeType getType()
+        {
+            return this.type;
         }
     }
 
@@ -677,17 +459,17 @@ public class LegendPureSession
             this.modifiedFiles = modifiedFiles;
         }
 
-        static CompileResult notReady()
+        public static CompileResult notReady()
         {
             return new CompileResult(false, false, false, null, Collections.emptyList());
         }
 
-        static CompileResult success(Iterable<String> modifiedFiles)
+        public static CompileResult success(Iterable<String> modifiedFiles)
         {
             return new CompileResult(true, true, false, null, Lists.mutable.withAll(modifiedFiles));
         }
 
-        static CompileResult error(Exception e, boolean internal)
+        public static CompileResult error(Exception e, boolean internal)
         {
             return new CompileResult(true, false, internal, e, Collections.emptyList());
         }
@@ -702,7 +484,6 @@ public class LegendPureSession
             return this.success;
         }
 
-        /** True if the error is an internal bug (NPE, IllegalState), not a compile error. */
         public boolean isInternalError()
         {
             return this.internalError;

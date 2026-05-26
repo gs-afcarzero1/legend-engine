@@ -18,6 +18,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import org.eclipse.lsp4j.InitializeParams;
 import org.junit.Assert;
 import org.junit.Test;
@@ -49,6 +51,23 @@ public class LegendPureLspServerTest
 
         Assert.assertEquals(
                 Arrays.asList("extension_repo"),
+                LegendPureLspServer.extractClasspathRepositoryNames(params));
+    }
+
+    @Test
+    public void extractClasspathRepositoryNames_readsJsonInitializationOption()
+    {
+        InitializeParams params = new InitializeParams();
+        JsonArray repositories = new JsonArray();
+        repositories.add("core");
+        repositories.add("core");
+        repositories.add("pure_ide");
+        JsonObject options = new JsonObject();
+        options.add("classpathRepositories", repositories);
+        params.setInitializationOptions(options);
+
+        Assert.assertEquals(
+                Arrays.asList("core", "pure_ide"),
                 LegendPureLspServer.extractClasspathRepositoryNames(params));
     }
 

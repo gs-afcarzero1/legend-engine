@@ -31,10 +31,18 @@ let packageTree: PurePackageTreeProvider | undefined;
 let goOutputChannel: import('vscode').OutputChannel | undefined;
 const SERVER_MAIN_CLASS = 'org.finos.legend.engine.lsp.LegendPureLspServer';
 
-// Resolves when PureRuntime is fully initialized (server sends "ready" message)
 let serverReady: Promise<void>;
 let resolveServerReady: () => void;
-serverReady = new Promise(r => { resolveServerReady = r; });
+resetServerReady();
+
+interface LspStatus {
+    state: string;
+    repositoryCount: number;
+    symbolCount: number;
+    recoveryAttempts: number;
+    recoveryInProgress: boolean;
+    message?: string;
+}
 
 export function activate(context: ExtensionContext): void {
     const jarPath = resolveServerJar();
@@ -235,23 +243,22 @@ export function activate(context: ExtensionContext): void {
                 })
             );
 
-            // Listen for showMessage to detect server readiness and reindex completion
-            client.onNotification('window/showMessage', (params: any) => {
-                if (params.message && params.message.includes(': ready')) {
-                    console.log('[Legend Pure] Server ready — tools are now active');
+            client.onNotification('legend/statusChanged', (status: LspStatus) => {
+                const state = (status.state || '').toLowerCase();
+                if (state === 'ready') {
+                    console.log(
+                        `[Legend Pure] Server ready (${status.repositoryCount} repos, ${status.symbolCount} symbols)`
+                    );
                     resolveServerReady();
-                    // Refresh the package tree now that PureRuntime is initialized
-                    if (packageTree) {
-                        packageTree.refresh();
-                    }
-                }
-                if (params.message && params.message.includes('reindex complete')) {
                     if (pureFs) {
                         pureFs.clearCache();
                     }
                     if (packageTree) {
                         packageTree.refresh();
                     }
+                }
+                if (state === 'initializing' || state === 'recovering') {
+                    resetServerReady();
                 }
             });
         }
@@ -438,6 +445,10 @@ function isClasspathWildcard(entry: string): boolean {
 
 function uniqueStrings(entries: string[]): string[] {
     return Array.from(new Set(entries));
+}
+
+function resetServerReady(): void {
+    serverReady = new Promise(r => { resolveServerReady = r; });
 }
 
 // ── LLM Tool Registration ──────────────────────────────────────────
