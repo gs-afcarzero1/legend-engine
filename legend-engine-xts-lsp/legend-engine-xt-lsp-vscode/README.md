@@ -64,10 +64,26 @@ code --install-extension legend-pure-lsp-0.1.0.vsix
 
 ## Configuration
 
-| Setting                     | Description                                                                 |
-|-----------------------------|-----------------------------------------------------------------------------|
-| `legendPure.server.jarPath` | Absolute path to the LSP server JAR. If empty, the extension searches the default Maven output directories. |
-| `legendPure.java.home`      | Path to a Java 11+ installation. If empty, `java` from `PATH` is used.     |
+| Setting                                      | Description                                                                 |
+|----------------------------------------------|-----------------------------------------------------------------------------|
+| `legendPure.server.jarPath`                  | Absolute path to the LSP server JAR. If empty, the extension searches the default Maven output directories. |
+| `legendPure.server.extraClasspath`           | Extra local JAR files, directories, or directory wildcards to append to the server classpath. |
+| `legendPure.server.classpathRepositories`    | Pure repository names to compile from classpath JARs in addition to the default platform repositories. |
+| `legendPure.java.home`                       | Path to a Java 11+ installation. If empty, `java` from `PATH` is used.     |
+
+When using `legendPure.server.extraClasspath`, provide the full dependency closure. Directory entries add both the directory itself and its JAR wildcard, so this is enough for typical `target/classes` plus dependency directories:
+
+```json
+{
+  "legendPure.server.extraClasspath": [
+    "${workspaceFolder}/my-extension/target/classes",
+    "${workspaceFolder}/my-extension/target/dependency"
+  ],
+  "legendPure.server.classpathRepositories": [
+    "my_extension_repo"
+  ]
+}
+```
 
 ## Commands
 
@@ -75,13 +91,14 @@ code --install-extension legend-pure-lsp-0.1.0.vsix
 |----------------------------------|--------------------------------------------------------------------------|
 | `Legend Pure: Reindex Workspace`  | Re-initializes the Pure runtime and reindexes all workspace sources.    |
 | `Legend Pure: Execute go()`       | Executes the `go():Any[*]` function and shows output in a panel.        |
+| `Legend Pure: Add Server Classpath Entry` | Adds local JAR files or directories to `legendPure.server.extraClasspath`. |
 
 ## Architecture
 
 The LSP server uses a **hybrid storage model**:
 
 - **Workspace repos** (found via `*.definition.json` scanning) use `MutableFSCodeStorage`, reading `.pure` files directly from `src/main/resources/`. Changes are reflected immediately.
-- **Classpath repos** (platform, extensions not checked out) use `ClassLoaderCodeStorage` from the fat JAR. These provide the Pure runtime, standard library, and pre-compiled extension modules.
+- **Classpath repos** use `ClassLoaderCodeStorage` from the server classpath. Platform repos are loaded by default; extension repos must be listed in `legendPure.server.classpathRepositories` unless they are checked out in the workspace.
 
 This means Pure file changes in the workspace are live, while the standard library and unmodified extensions come from the stable JAR.
 

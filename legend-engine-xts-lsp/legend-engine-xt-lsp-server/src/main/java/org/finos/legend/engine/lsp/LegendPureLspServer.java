@@ -15,13 +15,18 @@
 package org.finos.legend.engine.lsp;
 
 import java.io.PrintStream;
+import java.lang.reflect.Array;
+import java.lang.reflect.Method;
 import java.net.URI;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import org.eclipse.lsp4j.ExecuteCommandOptions;
 import org.eclipse.lsp4j.InitializeParams;
@@ -62,6 +67,7 @@ public class LegendPureLspServer implements LanguageServer, LanguageClientAware
     private final LegendTextDocumentService textDocumentService;
     private final LegendWorkspaceService workspaceService;
     private volatile List<Path> workspaceRoots = new ArrayList<>();
+    private volatile List<String> classpathRepositoryNames = Collections.emptyList();
 
     public LegendPureLspServer()
     {
@@ -101,8 +107,13 @@ public class LegendPureLspServer implements LanguageServer, LanguageClientAware
     {
         // Capture workspace roots for repository scanning
         this.workspaceRoots = extractWorkspaceRoots(params);
+        this.classpathRepositoryNames = extractClasspathRepositoryNames(params);
         LspLog.info("Legend Pure LSP v" + VERSION + " starting");
         LspLog.info("Workspace roots: " + this.workspaceRoots);
+        if (!this.classpathRepositoryNames.isEmpty())
+        {
+            LspLog.info("Classpath Pure repositories: " + this.classpathRepositoryNames);
+        }
 
         ServerCapabilities caps = new ServerCapabilities();
         caps.setTextDocumentSync(TextDocumentSyncKind.Full);
@@ -157,6 +168,109 @@ public class LegendPureLspServer implements LanguageServer, LanguageClientAware
         return roots;
     }
 
+    static List<String> extractClasspathRepositoryNames(InitializeParams params)
+    {
+        if (params == null)
+        {
+            return Collections.emptyList();
+        }
+
+        Object initializationOptions = params.getInitializationOptions();
+        Object value = readOption(initializationOptions, "classpathRepositories");
+        if (value == null)
+        {
+            Object serverOptions = readOption(initializationOptions, "server");
+            value = readOption(serverOptions, "classpathRepositories");
+        }
+        return toStringList(value);
+    }
+
+    private static Object readOption(Object options, String property)
+    {
+        if (options == null)
+        {
+            return null;
+        }
+        if (options instanceof Map<?, ?>)
+        {
+            return ((Map<?, ?>) options).get(property);
+        }
+        try
+        {
+            Method get = options.getClass().getMethod("get", String.class);
+            return get.invoke(options, property);
+        }
+        catch (Exception ignored)
+        {
+            return null;
+        }
+    }
+
+    private static List<String> toStringList(Object value)
+    {
+        if (value == null)
+        {
+            return Collections.emptyList();
+        }
+
+        Set<String> values = new LinkedHashSet<>();
+        if (value instanceof Iterable<?>)
+        {
+            for (Object item : (Iterable<?>) value)
+            {
+                addStringValue(values, item);
+            }
+        }
+        else if (value.getClass().isArray())
+        {
+            int length = Array.getLength(value);
+            for (int i = 0; i < length; i++)
+            {
+                addStringValue(values, Array.get(value, i));
+            }
+        }
+        else
+        {
+            addStringValue(values, value);
+        }
+        return values.isEmpty() ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(values));
+    }
+
+    private static void addStringValue(Set<String> values, Object value)
+    {
+        String stringValue = toStringValue(value);
+        if (stringValue != null)
+        {
+            String trimmed = stringValue.trim();
+            if (!trimmed.isEmpty())
+            {
+                values.add(trimmed);
+            }
+        }
+    }
+
+    private static String toStringValue(Object value)
+    {
+        if (value == null || "JsonNull".equals(value.getClass().getSimpleName()))
+        {
+            return null;
+        }
+        if (value instanceof String)
+        {
+            return (String) value;
+        }
+        try
+        {
+            Method getAsString = value.getClass().getMethod("getAsString");
+            Object result = getAsString.invoke(value);
+            return result instanceof String ? (String) result : null;
+        }
+        catch (Exception ignored)
+        {
+            return String.valueOf(value);
+        }
+    }
+
     private static Path uriToPath(String uri)
     {
         if (uri == null || uri.isEmpty())
@@ -197,7 +311,7 @@ public class LegendPureLspServer implements LanguageServer, LanguageClientAware
 
                 LspLog.info("Initializing PureRuntime...");
                 this.session = new LegendPureSession();
-                this.session.initialize(this.repositoryScanner);
+                this.session.initialize(this.repositoryScanner, this.classpathRepositoryNames);
                 LspLog.info("PureRuntime initialized");
 
                 // Wire UriMapper to PureRuntime for direct storage queries

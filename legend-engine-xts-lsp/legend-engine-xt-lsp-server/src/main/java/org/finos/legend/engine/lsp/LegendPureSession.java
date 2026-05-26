@@ -19,8 +19,11 @@ import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import org.eclipse.collections.api.factory.Lists;
 import org.eclipse.collections.api.list.MutableList;
 import org.eclipse.collections.api.tuple.Pair;
@@ -52,6 +55,7 @@ public class LegendPureSession
     private volatile boolean initialized;
 
     private volatile RepositoryScanner workspaceScanner;
+    private volatile Set<String> classpathRepositoryNames = Collections.emptySet();
 
     /**
      * Initialize with ClassLoaderCodeStorage only (tests, CI, no workspace).
@@ -62,19 +66,27 @@ public class LegendPureSession
     }
 
     /**
-     * Initialize with Option A architecture:
+     * Initialize with hybrid storage:
      * - MutableFSCodeStorage for every repo found on disk in the workspace
-     * - ClassLoaderCodeStorage ONLY for platform repos (Pure language primitives
-     *   that live in legend-pure JARs and are never in the legend-engine filesystem)
-     * - No overlap: platform repos are identified by name starting with "platform"
+     * - ClassLoaderCodeStorage for platform/null repos and explicitly configured classpath repos
+     * - No overlap: workspace repos win over classpath repos with the same name
      */
     public void initialize(RepositoryScanner scanner)
     {
+        initialize(scanner, Collections.emptyList());
+    }
+
+    /**
+     * Initialize with workspace repositories from disk and selected repositories from classpath.
+     */
+    public void initialize(RepositoryScanner scanner, Collection<String> classpathRepositoryNames)
+    {
         long start = System.currentTimeMillis();
         this.workspaceScanner = scanner;
+        this.classpathRepositoryNames = normalizeRepositoryNames(classpathRepositoryNames);
 
         MutableList<RepositoryCodeStorage> storages = Lists.mutable.empty();
-        java.util.Set<String> workspaceRepoNames = java.util.Collections.emptySet();
+        Set<String> workspaceRepoNames = Collections.emptySet();
 
         if (scanner != null && !scanner.getMappings().isEmpty())
         {
@@ -86,25 +98,29 @@ public class LegendPureSession
                     + " workspace repos (MutableFS from disk)");
         }
 
-        // Step 2: ClassLoader ONLY for platform repos (language primitives from JARs).
-        // Platform repos have names starting with "platform" and live in legend-pure JARs.
-        // They never exist in the legend-engine filesystem, so there's no overlap.
+        // Step 2: ClassLoader storage for platform/null repos and configured extension repos.
+        // Non-platform extension repos are opt-in to avoid loading stale classpath copies
+        // when the developer does not have that repo checked out.
         org.eclipse.collections.api.RichIterable<CodeRepository> classpathRepos =
                 CodeRepositoryProviderHelper.findCodeRepositories();
-        java.util.Set<String> finalWorkspaceNames = workspaceRepoNames;
-        MutableList<CodeRepository> platformRepos = Lists.mutable.empty();
+        Set<String> finalWorkspaceNames = workspaceRepoNames;
+        Set<String> unresolvedClasspathRepositoryNames = new LinkedHashSet<>(this.classpathRepositoryNames);
+        MutableList<CodeRepository> classpathStorageRepos = Lists.mutable.empty();
         for (CodeRepository repo : classpathRepos)
         {
             String name = repo.getName();
-            if (name == null)
+            if (shouldLoadClasspathRepository(name, finalWorkspaceNames, this.classpathRepositoryNames))
             {
-                // Welcome/scratch repos (null name) — always via ClassLoader
-                platformRepos.add(repo);
+                classpathStorageRepos.add(repo);
+                if (name != null)
+                {
+                    unresolvedClasspathRepositoryNames.remove(name);
+                }
             }
-            else if (isPlatformRepo(name) && !finalWorkspaceNames.contains(name))
+            else if (name != null && this.classpathRepositoryNames.contains(name) && finalWorkspaceNames.contains(name))
             {
-                // Platform repo not on disk — load from JAR
-                platformRepos.add(repo);
+                unresolvedClasspathRepositoryNames.remove(name);
+                LspLog.debug("Configured classpath repo is loaded from workspace instead: " + name);
             }
             else if (!finalWorkspaceNames.contains(name))
             {
@@ -115,11 +131,16 @@ public class LegendPureSession
             }
             // else: repo is on disk (in workspaceRepoNames) — already loaded via MutableFS
         }
-        if (!platformRepos.isEmpty())
+        if (!classpathStorageRepos.isEmpty())
         {
-            storages.add(new ClassLoaderCodeStorage(platformRepos));
-            LspLog.debug("Loaded " + platformRepos.size()
-                    + " platform repos (ClassLoader from JARs)");
+            storages.add(new ClassLoaderCodeStorage(classpathStorageRepos));
+            LspLog.debug("Loaded " + classpathStorageRepos.size()
+                    + " classpath repos (platform/default + configured)");
+        }
+        if (!unresolvedClasspathRepositoryNames.isEmpty())
+        {
+            LspLog.warn("Configured classpath repo(s) not found on runtime classpath: "
+                    + unresolvedClasspathRepositoryNames);
         }
 
         LOGGER.info("Building PureRuntime with {} storage(s)...", storages.size());
@@ -154,7 +175,7 @@ public class LegendPureSession
     {
         this.initialized = false;
         this.pureRuntime = null;
-        initialize(this.workspaceScanner);
+        initialize(this.workspaceScanner, this.classpathRepositoryNames);
     }
 
     /**
@@ -511,6 +532,40 @@ public class LegendPureSession
     private static boolean isPlatformRepo(String name)
     {
         return "platform".equals(name) || name.startsWith("platform_");
+    }
+
+    static boolean shouldLoadClasspathRepository(String name, Set<String> workspaceRepoNames, Set<String> classpathRepositoryNames)
+    {
+        if (name == null)
+        {
+            return true;
+        }
+        if (workspaceRepoNames.contains(name))
+        {
+            return false;
+        }
+        return isPlatformRepo(name) || classpathRepositoryNames.contains(name);
+    }
+
+    private static Set<String> normalizeRepositoryNames(Collection<String> repositoryNames)
+    {
+        if (repositoryNames == null || repositoryNames.isEmpty())
+        {
+            return Collections.emptySet();
+        }
+        Set<String> normalized = new LinkedHashSet<>();
+        for (String repositoryName : repositoryNames)
+        {
+            if (repositoryName != null)
+            {
+                String trimmed = repositoryName.trim();
+                if (!trimmed.isEmpty())
+                {
+                    normalized.add(trimmed);
+                }
+            }
+        }
+        return normalized.isEmpty() ? Collections.emptySet() : Collections.unmodifiableSet(normalized);
     }
 
     public PureRuntime getPureRuntime()

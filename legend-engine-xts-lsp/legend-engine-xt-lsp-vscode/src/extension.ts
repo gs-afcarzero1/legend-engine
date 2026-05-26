@@ -29,6 +29,7 @@ let client: LanguageClient | undefined;
 let pureFs: PureFileSystemProvider | undefined;
 let packageTree: PurePackageTreeProvider | undefined;
 let goOutputChannel: import('vscode').OutputChannel | undefined;
+const SERVER_MAIN_CLASS = 'org.finos.legend.engine.lsp.LegendPureLspServer';
 
 // Resolves when PureRuntime is fully initialized (server sends "ready" message)
 let serverReady: Promise<void>;
@@ -48,15 +49,31 @@ export function activate(context: ExtensionContext): void {
         return;
     }
 
+    const extraClasspath = resolveExtraClasspath();
+    if (!extraClasspath) {
+        return;
+    }
+    const classpathRepositories = getConfiguredStringArray('server.classpathRepositories');
     const javaHome = getJavaExecutable();
+    const serverArgs = buildServerArgs(jarPath, extraClasspath);
+    console.log('[Legend Pure] Server launch mode:', extraClasspath.length > 0 ? 'classpath' : 'jar');
+    if (extraClasspath.length > 0) {
+        console.log('[Legend Pure] Resolved extra classpath:', extraClasspath);
+    }
+    if (classpathRepositories.length > 0) {
+        console.log('[Legend Pure] Classpath Pure repositories:', classpathRepositories);
+    }
 
     const serverOptions: ServerOptions = {
         command: javaHome,
-        args: ['-jar', jarPath],
+        args: serverArgs,
         options: { env: process.env },
     };
 
     const clientOptions: LanguageClientOptions = {
+        initializationOptions: {
+            classpathRepositories,
+        },
         documentSelector: [
             { scheme: 'file', language: 'pure' },
             { scheme: 'pure', language: 'pure' },
@@ -137,6 +154,42 @@ export function activate(context: ExtensionContext): void {
             const reload = 'Reload Window';
             const choice = await window.showInformationMessage(
                 'Legend Pure LSP server JAR path updated. Reload the window to restart the server with this JAR.',
+                reload
+            );
+            if (choice === reload) {
+                await commands.executeCommand('workbench.action.reloadWindow');
+            }
+        })
+    );
+
+    context.subscriptions.push(
+        commands.registerCommand('legend.addServerClasspathEntry', async () => {
+            const selected = await window.showOpenDialog({
+                title: 'Select Legend Pure LSP Server Classpath Entries',
+                defaultUri: workspace.workspaceFolders?.[0]?.uri,
+                canSelectFiles: true,
+                canSelectFolders: true,
+                canSelectMany: true,
+                filters: {
+                    'JAR files': ['jar'],
+                },
+            });
+
+            if (!selected || selected.length === 0) {
+                return;
+            }
+
+            const config = workspace.getConfiguration('legendPure');
+            const existing = getConfiguredStringArray('server.extraClasspath');
+            const next = uniqueStrings(existing.concat(selected.map((uri) => uri.fsPath)));
+            const target = workspace.workspaceFolders
+                ? vscode.ConfigurationTarget.Workspace
+                : vscode.ConfigurationTarget.Global;
+            await config.update('server.extraClasspath', next, target);
+
+            const reload = 'Reload Window';
+            const choice = await window.showInformationMessage(
+                'Legend Pure LSP server classpath updated. Reload the window to restart the server with this classpath.',
                 reload
             );
             if (choice === reload) {
@@ -301,6 +354,13 @@ function resolveServerJar(): string | undefined {
     return undefined;
 }
 
+function buildServerArgs(jarPath: string, extraClasspath: string[]): string[] {
+    if (extraClasspath.length === 0) {
+        return ['-jar', jarPath];
+    }
+    return ['-cp', [jarPath].concat(extraClasspath).join(path.delimiter), SERVER_MAIN_CLASS];
+}
+
 function expandConfiguredPath(configuredPath: string): string {
     let expanded = configuredPath.trim();
     if (expanded === '~') {
@@ -317,6 +377,67 @@ function expandConfiguredPath(configuredPath: string): string {
     return path.isAbsolute(expanded)
         ? expanded
         : path.resolve(firstWorkspaceFolder || process.cwd(), expanded);
+}
+
+function resolveExtraClasspath(): string[] | undefined {
+    const configuredEntries = getConfiguredStringArray('server.extraClasspath');
+    const resolvedEntries: string[] = [];
+
+    for (const configuredEntry of configuredEntries) {
+        if (isClasspathWildcard(configuredEntry)) {
+            const parent = expandConfiguredPath(configuredEntry.slice(0, -2));
+            if (!fs.existsSync(parent) || !fs.statSync(parent).isDirectory()) {
+                window.showErrorMessage(
+                    `Legend Pure LSP: configured classpath wildcard parent does not exist or is not a directory: ${parent}`
+                );
+                return undefined;
+            }
+            resolvedEntries.push(path.join(parent, '*'));
+            continue;
+        }
+
+        const expandedEntry = expandConfiguredPath(configuredEntry);
+        if (!fs.existsSync(expandedEntry)) {
+            window.showErrorMessage(
+                `Legend Pure LSP: configured classpath entry does not exist: ${expandedEntry}`
+            );
+            return undefined;
+        }
+
+        const stat = fs.statSync(expandedEntry);
+        if (stat.isDirectory()) {
+            resolvedEntries.push(expandedEntry);
+            resolvedEntries.push(path.join(expandedEntry, '*'));
+        } else if (stat.isFile() && expandedEntry.toLowerCase().endsWith('.jar')) {
+            resolvedEntries.push(expandedEntry);
+        } else {
+            window.showErrorMessage(
+                `Legend Pure LSP: configured classpath entry must be a JAR file, directory, or directory wildcard: ${expandedEntry}`
+            );
+            return undefined;
+        }
+    }
+
+    return uniqueStrings(resolvedEntries);
+}
+
+function getConfiguredStringArray(section: string): string[] {
+    const value = workspace.getConfiguration('legendPure').get<unknown>(section);
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    return value
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0);
+}
+
+function isClasspathWildcard(entry: string): boolean {
+    return entry.endsWith('/*') || entry.endsWith('\\*');
+}
+
+function uniqueStrings(entries: string[]): string[] {
+    return Array.from(new Set(entries));
 }
 
 // ── LLM Tool Registration ──────────────────────────────────────────

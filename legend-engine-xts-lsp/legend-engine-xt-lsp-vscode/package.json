@@ -99,6 +99,22 @@
           "default": "",
           "description": "Absolute path to the Legend Pure LSP server JAR. If empty, the extension looks for the JAR in the default Maven build output directory relative to the workspace."
         },
+        "legendPure.server.extraClasspath": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Extra local JAR files, directories, or directory wildcards to append to the LSP server Java classpath. Directory entries add both the directory and its JAR wildcard. Changing this setting requires reloading the VS Code window."
+        },
+        "legendPure.server.classpathRepositories": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Pure repository names to compile from classpath JARs in addition to the default platform repositories. Use this with legendPure.server.extraClasspath for extension Pure sources."
+        },
         "legendPure.java.home": {
           "type": "string",
           "default": "",
@@ -189,6 +205,10 @@
       {
         "command": "legend.setServerJarPath",
         "title": "Legend Pure: Set Server JAR Path"
+      },
+      {
+        "command": "legend.addServerClasspathEntry",
+        "title": "Legend Pure: Add Server Classpath Entry"
       }
     ]
   },
