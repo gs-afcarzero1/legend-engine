@@ -60,6 +60,8 @@ type DebugEvaluateResult = {
     variablesReference?: number;
 };
 
+type DebugExecutionState = 'idle' | 'running' | 'paused' | 'terminated';
+
 export class LegendPureDebugConfigurationProvider implements vscode.DebugConfigurationProvider {
     resolveDebugConfiguration(
         folder: vscode.WorkspaceFolder | undefined,
@@ -79,6 +81,11 @@ export class LegendPureDebugConfigurationProvider implements vscode.DebugConfigu
 }
 
 export class LegendPureDebugAdapter implements vscode.DebugAdapter {
+    // DAP variablesReference 1 is the protocol root for the Locals scope. The
+    // LSP server resolves it through legend/debug/variables and allocates any
+    // child references for expandable values.
+    private static readonly LOCALS_VARIABLES_REFERENCE = 1;
+
     private readonly emitter = new vscode.EventEmitter<vscode.DebugProtocolMessage>();
     readonly onDidSendMessage = this.emitter.event;
 
@@ -89,6 +96,8 @@ export class LegendPureDebugAdapter implements vscode.DebugAdapter {
     private launchArgs: any | undefined;
     private configurationDone = false;
     private started = false;
+    private debugOperationGeneration = 0;
+    private executionState: DebugExecutionState = 'idle';
 
     constructor(
         private readonly clientProvider: () => LanguageClient | undefined,
@@ -107,6 +116,7 @@ export class LegendPureDebugAdapter implements vscode.DebugAdapter {
                 this.sendResponse(request, {
                     supportsConfigurationDoneRequest: true,
                     supportsEvaluateForHovers: true,
+                    supportsInvalidatedEvent: true,
                     supportsTerminateRequest: true,
                 });
                 this.sendEvent('initialized');
@@ -135,7 +145,14 @@ export class LegendPureDebugAdapter implements vscode.DebugAdapter {
                 break;
             case 'scopes':
                 this.sendResponse(request, {
-                    scopes: [{ name: 'Local', variablesReference: 1, expensive: false }],
+                    scopes: this.executionState === 'paused'
+                        ? [{
+                            name: 'Locals',
+                            presentationHint: 'locals',
+                            variablesReference: LegendPureDebugAdapter.LOCALS_VARIABLES_REFERENCE,
+                            expensive: false,
+                        }]
+                        : [],
                 });
                 break;
             case 'variables':
@@ -146,22 +163,22 @@ export class LegendPureDebugAdapter implements vscode.DebugAdapter {
                 break;
             case 'continue':
                 this.sendResponse(request, { allThreadsContinued: true });
-                void this.resumeWithRequest('legend/debug/continue');
+                void this.resumeWithRequest('legend/debug/continue', true);
                 break;
             case 'next':
                 this.sendResponse(request, { allThreadsContinued: true });
-                void this.resumeWithRequest('legend/debug/stepOver');
+                void this.resumeWithRequest('legend/debug/stepOver', true);
                 break;
             case 'stepIn':
                 this.sendResponse(request, { allThreadsContinued: true });
-                void this.resumeWithRequest('legend/debug/stepIn');
+                void this.resumeWithRequest('legend/debug/stepIn', true);
                 break;
             case 'stepOut':
                 this.sendResponse(request, undefined, false, 'Step out is not supported by the current Pure debug runtime');
                 break;
             case 'disconnect':
             case 'terminate':
-                void this.stopDebug(request);
+                this.stopDebug(request);
                 break;
             default:
                 this.sendResponse(request);
@@ -204,8 +221,15 @@ export class LegendPureDebugAdapter implements vscode.DebugAdapter {
 
     private async handleVariables(request: RequestMessage): Promise<void> {
         try {
+            if (this.executionState !== 'paused') {
+                this.sendResponse(request, { variables: [] });
+                return;
+            }
+
             const client = await this.getReadyClient();
-            const variablesReference = Number(request.arguments?.variablesReference || 1);
+            const variablesReference = Number(
+                request.arguments?.variablesReference || LegendPureDebugAdapter.LOCALS_VARIABLES_REFERENCE
+            );
             const variables = await client.sendRequest<DebugVariable[]>('legend/debug/variables', { variablesReference });
             this.sendResponse(request, {
                 variables: (variables || []).map(variable => ({
@@ -247,71 +271,139 @@ export class LegendPureDebugAdapter implements vscode.DebugAdapter {
     }
 
     private async startDebug(): Promise<void> {
+        const operationGeneration = this.markRunning(false);
         try {
             const client = await this.getReadyClient();
+            if (!this.isCurrentOperation(operationGeneration)) {
+                return;
+            }
             const breakpoints = Array.from(this.breakpointsByUri.values()).flat();
             const result = await client.sendRequest<DebugResponse>('legend/debug/start', {
                 function: this.launchArgs?.function || 'go():Any[*]',
                 breakpoints,
             });
-            this.handleDebugResponse(result);
+            this.handleDebugResponse(result, operationGeneration);
         } catch (e: any) {
-            this.sendOutput(`ERROR: ${e.message || e}\n`, 'stderr');
-            this.sendEvent('terminated');
+            if (this.isCurrentOperation(operationGeneration)) {
+                this.sendOutput(`ERROR: ${e.message || e}\n`, 'stderr');
+                this.terminateDebugSession();
+            }
         }
     }
 
-    private async resumeWithRequest(method: string): Promise<void> {
+    private async resumeWithRequest(method: string, sendContinuedEvent: boolean): Promise<void> {
+        const operationGeneration = this.markRunning(sendContinuedEvent);
         try {
             const client = await this.getReadyClient();
+            if (!this.isCurrentOperation(operationGeneration)) {
+                return;
+            }
             const result = await client.sendRequest<DebugResponse>(method);
-            this.handleDebugResponse(result);
+            this.handleDebugResponse(result, operationGeneration);
         } catch (e: any) {
-            this.sendOutput(`ERROR: ${e.message || e}\n`, 'stderr');
-            this.sendEvent('terminated');
+            if (this.isCurrentOperation(operationGeneration)) {
+                this.sendOutput(`ERROR: ${e.message || e}\n`, 'stderr');
+                this.terminateDebugSession();
+            }
         }
     }
 
-    private async stopDebug(request: RequestMessage): Promise<void> {
-        try {
-            const client = await this.getReadyClient();
-            await client.sendRequest<DebugResponse>('legend/debug/stop');
-        } catch {
-            // The adapter is shutting down; do not surface stop errors.
-        }
+    private stopDebug(request: RequestMessage): void {
         this.sendResponse(request);
-        this.sendEvent('terminated');
+        this.terminateDebugSession();
+
+        const client = this.clientProvider();
+        if (client) {
+            void client.sendRequest<DebugResponse>('legend/debug/stop').catch(() => {
+                // The adapter is shutting down; do not surface best-effort stop errors.
+            });
+        }
     }
 
-    private handleDebugResponse(result: DebugResponse): void {
+    private handleDebugResponse(result: DebugResponse, operationGeneration: number): void {
+        if (!this.isCurrentOperation(operationGeneration)) {
+            return;
+        }
+
         if (result.output) {
             this.sendOutput(result.output, 'console');
         }
 
         if (!result.success || result.state === 'error') {
             this.sendOutput(`ERROR: ${result.message || 'Debug execution failed'}\n`, 'stderr');
-            this.sendEvent('terminated');
+            this.terminateDebugSession();
             return;
         }
 
         if (result.state === 'paused') {
-            this.stackFrames = result.stackFrames || [];
+            this.markPaused(result.stackFrames || []);
             this.sendEvent('stopped', {
                 reason: result.reason || 'breakpoint',
                 threadId: 1,
                 allThreadsStopped: true,
             });
+            this.invalidateVariables();
         } else {
-            this.stackFrames = [];
+            this.terminateDebugSession();
+        }
+    }
+
+    private markRunning(sendContinuedEvent: boolean): number {
+        const operationGeneration = ++this.debugOperationGeneration;
+        this.executionState = 'running';
+        this.stackFrames = [];
+        if (sendContinuedEvent) {
+            this.sendEvent('continued', {
+                threadId: 1,
+                allThreadsContinued: true,
+            });
+            this.invalidateVariables();
+        }
+        return operationGeneration;
+    }
+
+    private markPaused(stackFrames: DebugStackFrame[]): void {
+        // VS Code refreshes the Variables pane from scopes/variables requests
+        // after stopped/invalidated events. The server owns the actual locals;
+        // the adapter only mirrors pause state to avoid showing stale values.
+        this.executionState = 'paused';
+        this.stackFrames = stackFrames;
+    }
+
+    private terminateDebugSession(): void {
+        const wasTerminated = this.executionState === 'terminated';
+        this.debugOperationGeneration++;
+        this.executionState = 'terminated';
+        this.stackFrames = [];
+        this.invalidateVariables();
+        if (!wasTerminated) {
             this.sendEvent('terminated');
         }
     }
 
+    private invalidateVariables(): void {
+        this.sendEvent('invalidated', { areas: ['variables'] });
+    }
+
+    private isCurrentOperation(operationGeneration: number): boolean {
+        return operationGeneration === this.debugOperationGeneration && this.executionState !== 'terminated';
+    }
+
     private async getReadyClient(): Promise<LanguageClient> {
+        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
         const timeout = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('Pure LSP runtime did not become ready in 120 seconds')), 120_000);
+            timeoutHandle = setTimeout(
+                () => reject(new Error('Pure LSP runtime did not become ready in 120 seconds')),
+                120_000
+            );
         });
-        await Promise.race([this.serverReady, timeout]);
+        try {
+            await Promise.race([this.serverReady, timeout]);
+        } finally {
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+            }
+        }
         const client = this.clientProvider();
         if (!client) {
             throw new Error('Pure LSP not started');

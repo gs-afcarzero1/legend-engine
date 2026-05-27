@@ -14,6 +14,7 @@ VS Code extension providing language support for Legend Pure (`.pure` files) via
 - **Workspace symbol search** (Ctrl+T) -- pre-built index for instant search across all elements
 - **Virtual filesystem** (`pure://` scheme) for read-only browsing of classpath Pure sources
 - **Execute go()** (Ctrl+Shift+P, then "Legend Pure: Execute go()") -- runs the `go():Any[*]` function and shows console output
+- **Debugging** -- breakpoints, stepping, stack frames, and paused Pure locals in the Run and Debug Variables pane
 - **Hybrid storage** -- workspace repos use MutableFSCodeStorage (reads from disk, reflects changes immediately), classpath repos fall back to ClassLoaderCodeStorage
 - **Error isolation** -- compilation failures in one file don't spread to others
 - **Immutable source protection** -- platform/bootstrap sources are never re-parsed
@@ -23,7 +24,6 @@ VS Code extension providing language support for Legend Pure (`.pure` files) via
 
 - Code completion (Ctrl+Space)
 - Test execution
-- Debugging (breakpoints, stepping)
 - Rename / move refactoring
 - Document outline (Ctrl+Shift+O)
 - Full-text search across Pure sources
@@ -102,6 +102,12 @@ The LSP server uses a **hybrid storage model**:
 
 This means Pure file changes in the workspace are live, while the standard library and unmodified extensions come from the stable JAR.
 
+### Debug Variables Flow
+
+The VS Code debug adapter is an inline Debug Adapter Protocol bridge over LSP requests. On launch it sends the target function and verified breakpoints to `legend/debug/start`. When the server reports a paused state, the adapter stores the current stack frame, emits `stopped`, and emits `invalidated` for `variables` so VS Code refreshes the Run and Debug Variables pane.
+
+While paused, the adapter exposes a single `Locals` scope with `variablesReference: 1`. VS Code then requests variables for that reference, and the adapter forwards the request to `legend/debug/variables`. Reference `1` is the root locals reference; expandable child references are allocated and resolved by the server. On continue or step, the adapter marks execution running, clears stack frames, emits `continued`, and invalidates variables so stale locals disappear until the next pause.
+
 ## Debugging the Server
 
 The server writes `[LSP-DEBUG]` messages to stderr. In VS Code, open Output panel and select "Legend Pure LSP" to see:
@@ -113,3 +119,5 @@ The server writes `[LSP-DEBUG]` messages to stderr. In VS Code, open Output pane
 ## Test Suite
 
 114 tests across 14 test classes covering compilation, navigation, hover, references, workspace symbols, URI mapping, repository scanning, hybrid storage, error isolation, and immutable source protection.
+
+The VS Code extension also has a Node-based debug adapter test suite. Run it from this directory with `npm test`.
