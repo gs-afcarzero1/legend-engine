@@ -133,10 +133,10 @@ public class DebugService
         return active.evaluate(params == null ? "" : params.getExpression());
     }
 
-    public synchronized List<LegendDebug.Variable> variables()
+    public synchronized List<LegendDebug.Variable> variables(LegendDebug.VariablesParams params)
     {
         LegendDebugSession active = this.debugSession;
-        return active == null ? Collections.emptyList() : active.variables();
+        return active == null ? Collections.emptyList() : active.variables(params == null ? 1 : params.getVariablesReference());
     }
 
     public synchronized LegendDebug.Response stop()

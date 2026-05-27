@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.List;
 import org.finos.legend.engine.lsp.LegendPureSession;
 import org.finos.legend.engine.lsp.RepositoryScanner;
 import org.finos.legend.engine.lsp.UriMapper;
@@ -389,6 +390,132 @@ public class LegendDebugSessionTest
         assertBreakpointLine(session, sourceId, uri, 8, 9);
     }
 
+    @Test(timeout = 60_000)
+    public void evaluateAcceptsImplicitLocalReferencesAndFormatsResults()
+    {
+        LegendPureSession session = newInitializedSession();
+        assertCompiled(session.modifyAndCompile("debug_implicit_local_eval.pure", debugLocalsCode()));
+
+        LegendDebugSession debug = LegendDebugSession.create(
+                session, null, new UriMapper(), Collections.emptyMap(), "go():Any[*]", Collections.emptyList());
+
+        LegendDebug.Response paused = debug.start();
+        Assert.assertTrue(paused.isSuccess());
+        Assert.assertEquals("paused", paused.getState());
+
+        LegendDebug.EvaluateResult implicit = debug.evaluate("routedFunction");
+        Assert.assertTrue("Implicit local evaluate should succeed: " + implicit.getError(), implicit.isSuccess());
+        Assert.assertTrue(implicit.getResult(), implicit.getResult().contains("test::debug::routed():String[1]"));
+        Assert.assertTrue("Function evaluate result should be expandable", implicit.getVariablesReference() > 0);
+
+        LegendDebug.EvaluateResult explicit = debug.evaluate("$routedFunction");
+        Assert.assertTrue("Explicit local evaluate should still succeed: " + explicit.getError(), explicit.isSuccess());
+        Assert.assertEquals(implicit.getResult(), explicit.getResult());
+
+        LegendDebug.EvaluateResult property = debug.evaluate("routedFunction.expressionSequence");
+        Assert.assertTrue("Property evaluate should succeed: " + property.getError(), property.isSuccess());
+        Assert.assertFalse("Formatted value should hide raw anonymous ids: " + property.getResult(),
+                property.getResult().contains("@_"));
+
+        LegendDebug.EvaluateResult pipeline = debug.evaluate("numbers->size()");
+        Assert.assertTrue("Pipeline local evaluate should succeed: " + pipeline.getError(), pipeline.isSuccess());
+        Assert.assertEquals("2", pipeline.getResult());
+
+        debug.stop();
+    }
+
+    @Test(timeout = 60_000)
+    public void variablesPanelShowsReadableExpandableValues()
+    {
+        LegendPureSession session = newInitializedSession();
+        assertCompiled(session.modifyAndCompile("debug_readable_locals.pure", debugLocalsCode()));
+
+        LegendDebugSession debug = LegendDebugSession.create(
+                session, null, new UriMapper(), Collections.emptyMap(), "go():Any[*]", Collections.emptyList());
+
+        LegendDebug.Response paused = debug.start();
+        Assert.assertTrue(paused.isSuccess());
+        Assert.assertEquals("paused", paused.getState());
+
+        List<LegendDebug.Variable> locals = debug.variables(1);
+        Assert.assertEquals("Ada", variable(locals, "name").getValue());
+        Assert.assertEquals("42", variable(locals, "answer").getValue());
+        Assert.assertTrue(variable(locals, "numbers").getValue(), variable(locals, "numbers").getValue().contains("[2]"));
+        Assert.assertTrue(variable(locals, "numbers").getVariablesReference() > 0);
+        Assert.assertTrue(variable(locals, "person").getValue(), variable(locals, "person").getValue().contains("test::debug::Person"));
+        Assert.assertFalse(variable(locals, "person").getValue(), variable(locals, "person").getValue().contains("@_"));
+        Assert.assertTrue(variable(locals, "routedFunction").getValue(),
+                variable(locals, "routedFunction").getValue().contains("test::debug::routed():String[1]"));
+        Assert.assertTrue(variable(locals, "mapping").getValue(),
+                variable(locals, "mapping").getValue().contains("test::debug::DebugMapping"));
+        Assert.assertTrue(variable(locals, "runtime").getValue(),
+                variable(locals, "runtime").getValue().contains("test::debug::DebugRuntime"));
+        Assert.assertFalse(variable(locals, "runtime").getValue(),
+                variable(locals, "runtime").getValue().contains("@_"));
+
+        int numbersReference = variable(locals, "numbers").getVariablesReference();
+        List<LegendDebug.Variable> firstExpansion = debug.variables(numbersReference);
+        List<LegendDebug.Variable> secondExpansion = debug.variables(numbersReference);
+        Assert.assertEquals(2, firstExpansion.size());
+        Assert.assertEquals("[0]", firstExpansion.get(0).getName());
+        Assert.assertEquals("1", firstExpansion.get(0).getValue());
+        Assert.assertEquals("Child references should be stable for repeated expansion",
+                firstExpansion.get(0).getVariablesReference(),
+                secondExpansion.get(0).getVariablesReference());
+
+        int personReference = variable(locals, "person").getVariablesReference();
+        List<LegendDebug.Variable> personChildren = debug.variables(personReference);
+        Assert.assertEquals("Ada", variable(personChildren, "firstName").getValue());
+        Assert.assertEquals("Lovelace", variable(personChildren, "lastName").getValue());
+
+        debug.stop();
+    }
+
+    @Test(timeout = 60_000)
+    public void localsAppearOnlyAfterAssignmentHasExecuted()
+    {
+        LegendPureSession session = newInitializedSession();
+        assertCompiled(session.modifyAndCompile(
+                "debug_assignment_timing.pure",
+                "function makeClusters():String[*]\n" +
+                        "{\n" +
+                        "  ['a', 'b'];\n" +
+                        "}\n" +
+                        "function go():Any[*]\n" +
+                        "{\n" +
+                        "  meta::pure::ide::debug();\n" +
+                        "  let clusters = makeClusters();\n" +
+                        "  print($clusters->size()->toString(), 1);\n" +
+                        "}\n"));
+
+        LegendDebugSession debug = LegendDebugSession.create(
+                session, null, new UriMapper(), Collections.emptyMap(), "go():Any[*]", Collections.emptyList());
+
+        Assert.assertEquals("paused", debug.start().getState());
+        Assert.assertNull(variableOrNull(debug.variables(), "clusters"));
+        LegendDebug.EvaluateResult beforeAssignment = debug.evaluate("$clusters");
+        Assert.assertFalse(beforeAssignment.isSuccess());
+        Assert.assertTrue(beforeAssignment.getError(), beforeAssignment.getError().contains("`clusters` is not in scope yet"));
+        Assert.assertTrue(beforeAssignment.getError(), beforeAssignment.getError().contains("available locals"));
+
+        LegendDebug.Response atAssignment = debug.stepOver();
+        Assert.assertTrue(atAssignment.isSuccess());
+        Assert.assertEquals("paused", atAssignment.getState());
+        Assert.assertNull("clusters should not be visible while paused on its assignment line",
+                variableOrNull(debug.variables(), "clusters"));
+
+        LegendDebug.Response afterAssignment = debug.stepOver();
+        Assert.assertTrue(afterAssignment.isSuccess());
+        Assert.assertEquals("paused", afterAssignment.getState());
+        Assert.assertNotNull("clusters should be visible after stepping past its assignment",
+                variableOrNull(debug.variables(), "clusters"));
+        LegendDebug.EvaluateResult size = debug.evaluate("clusters->size()");
+        Assert.assertTrue("clusters->size() should evaluate after assignment: " + size.getError(), size.isSuccess());
+        Assert.assertEquals("2", size.getResult());
+
+        debug.stop();
+    }
+
     @Ignore("FunctionExecutionInterpreted.executeFunction is not invoked for bare variable/literal ValueSpecifications; this requires a guarded ValueSpecification hook in legend-pure.")
     @Test(timeout = 60_000)
     public void breakpointOnVariableOnlyExpressionRequiresPureValueSpecificationHook()
@@ -420,6 +547,53 @@ public class LegendDebugSessionTest
                 "  helper();\n" +
                 "  print('after', 1);\n" +
                 "}\n";
+    }
+
+    private static String debugLocalsCode()
+    {
+        return "###Pure\n" +
+                "Class test::debug::Person\n" +
+                "{\n" +
+                "  firstName: String[1];\n" +
+                "  lastName: String[1];\n" +
+                "}\n" +
+                "Class test::debug::DebugRuntime\n" +
+                "{\n" +
+                "  mappings: meta::pure::mapping::Mapping[*];\n" +
+                "}\n" +
+                "function test::debug::routed():String[1]\n" +
+                "{\n" +
+                "  'routed';\n" +
+                "}\n" +
+                "function go():Any[*]\n" +
+                "{\n" +
+                "  let name = 'Ada';\n" +
+                "  let answer = 42;\n" +
+                "  let numbers = [1, 2];\n" +
+                "  let person = ^test::debug::Person(firstName='Ada', lastName='Lovelace');\n" +
+                "  let routedFunction = 'test::debug::routed__String_1_'->pathToElement()->cast(@Function<Any>);\n" +
+                "  let mapping = 'test::debug::DebugMapping'->pathToElement()->cast(@meta::pure::mapping::Mapping);\n" +
+                "  let runtime = ^test::debug::DebugRuntime(mappings=[$mapping]);\n" +
+                "  meta::pure::ide::debug();\n" +
+                "  $name;\n" +
+                "}\n" +
+                "###Mapping\n" +
+                "Mapping test::debug::DebugMapping ()\n";
+    }
+
+    private static LegendDebug.Variable variable(List<LegendDebug.Variable> variables, String name)
+    {
+        LegendDebug.Variable variable = variableOrNull(variables, name);
+        Assert.assertNotNull("Expected variable " + name + " in " + variables, variable);
+        return variable;
+    }
+
+    private static LegendDebug.Variable variableOrNull(List<LegendDebug.Variable> variables, String name)
+    {
+        return variables.stream()
+                .filter(variable -> name.equals(variable.getName()))
+                .findFirst()
+                .orElse(null);
     }
 
     private static void assertBreakpointLine(LegendPureSession session, String sourceId, String uri,

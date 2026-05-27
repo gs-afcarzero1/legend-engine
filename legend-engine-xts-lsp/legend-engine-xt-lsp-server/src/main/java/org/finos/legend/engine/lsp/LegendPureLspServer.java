@@ -349,9 +349,9 @@ public class LegendPureLspServer implements LanguageServer, LanguageClientAware
     }
 
     @JsonRequest("legend/debug/variables")
-    public CompletableFuture<List<LegendDebug.Variable>> debugVariables()
+    public CompletableFuture<List<LegendDebug.Variable>> debugVariables(LegendDebug.VariablesParams params)
     {
-        return supplyAsync(this.debugService::variables);
+        return supplyAsync(() -> this.debugService.variables(params));
     }
 
     @JsonRequest("legend/debug/stop")

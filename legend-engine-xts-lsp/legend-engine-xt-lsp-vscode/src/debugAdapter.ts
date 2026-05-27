@@ -50,12 +50,14 @@ type DebugVariable = {
     name: string;
     value: string;
     type: string;
+    variablesReference?: number;
 };
 
 type DebugEvaluateResult = {
     success: boolean;
     result?: string | null;
     error?: string | null;
+    variablesReference?: number;
 };
 
 export class LegendPureDebugConfigurationProvider implements vscode.DebugConfigurationProvider {
@@ -203,13 +205,14 @@ export class LegendPureDebugAdapter implements vscode.DebugAdapter {
     private async handleVariables(request: RequestMessage): Promise<void> {
         try {
             const client = await this.getReadyClient();
-            const variables = await client.sendRequest<DebugVariable[]>('legend/debug/variables');
+            const variablesReference = Number(request.arguments?.variablesReference || 1);
+            const variables = await client.sendRequest<DebugVariable[]>('legend/debug/variables', { variablesReference });
             this.sendResponse(request, {
                 variables: (variables || []).map(variable => ({
                     name: variable.name,
                     value: variable.value || '',
                     type: variable.type || '',
-                    variablesReference: 0,
+                    variablesReference: variable.variablesReference || 0,
                 })),
             });
         } catch (e: any) {
@@ -225,7 +228,7 @@ export class LegendPureDebugAdapter implements vscode.DebugAdapter {
             if (result.success) {
                 this.sendResponse(request, {
                     result: result.result || '',
-                    variablesReference: 0,
+                    variablesReference: result.variablesReference || 0,
                 });
             } else {
                 this.sendResponse(request, undefined, false, result.error || 'Evaluation failed');

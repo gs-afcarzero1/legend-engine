@@ -108,6 +108,25 @@ public final class LegendDebug
         }
     }
 
+    public static class VariablesParams
+    {
+        private int variablesReference;
+
+        public VariablesParams()
+        {
+        }
+
+        public int getVariablesReference()
+        {
+            return this.variablesReference;
+        }
+
+        public void setVariablesReference(int variablesReference)
+        {
+            this.variablesReference = variablesReference;
+        }
+    }
+
     public static class Response
     {
         private boolean success;
@@ -288,6 +307,7 @@ public final class LegendDebug
         private String name;
         private String value;
         private String type;
+        private int variablesReference;
 
         public Variable()
         {
@@ -295,9 +315,15 @@ public final class LegendDebug
 
         public Variable(String name, String value, String type)
         {
+            this(name, value, type, 0);
+        }
+
+        public Variable(String name, String value, String type, int variablesReference)
+        {
             this.name = name;
             this.value = value;
             this.type = type;
+            this.variablesReference = variablesReference;
         }
 
         public String getName()
@@ -329,6 +355,16 @@ public final class LegendDebug
         {
             this.type = type;
         }
+
+        public int getVariablesReference()
+        {
+            return this.variablesReference;
+        }
+
+        public void setVariablesReference(int variablesReference)
+        {
+            this.variablesReference = variablesReference;
+        }
     }
 
     public static class EvaluateResult
@@ -336,6 +372,7 @@ public final class LegendDebug
         private boolean success;
         private String result;
         private String error;
+        private int variablesReference;
 
         public EvaluateResult()
         {
@@ -343,9 +380,15 @@ public final class LegendDebug
 
         public static EvaluateResult success(String result)
         {
+            return success(result, 0);
+        }
+
+        public static EvaluateResult success(String result, int variablesReference)
+        {
             EvaluateResult response = new EvaluateResult();
             response.success = true;
             response.result = result;
+            response.variablesReference = variablesReference;
             return response;
         }
 
@@ -385,6 +428,16 @@ public final class LegendDebug
         public void setError(String error)
         {
             this.error = error;
+        }
+
+        public int getVariablesReference()
+        {
+            return this.variablesReference;
+        }
+
+        public void setVariablesReference(int variablesReference)
+        {
+            this.variablesReference = variablesReference;
         }
     }
 }

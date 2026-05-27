@@ -30,7 +30,6 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
-import org.eclipse.collections.api.tuple.Pair;
 import org.eclipse.collections.impl.list.mutable.FastList;
 import org.finos.legend.engine.lsp.LegendPureSession;
 import org.finos.legend.engine.lsp.LspLog;
@@ -180,7 +179,7 @@ class LegendDebugSession
         }
         try
         {
-            return LegendDebug.EvaluateResult.success(state.evaluate(expression == null ? "" : expression));
+            return state.evaluate(expression == null ? "" : expression);
         }
         catch (Exception e)
         {
@@ -191,18 +190,18 @@ class LegendDebugSession
 
     List<LegendDebug.Variable> variables()
     {
+        return variables(1);
+    }
+
+    List<LegendDebug.Variable> variables(int variablesReference)
+    {
         LegendDebugState state = this.functionExecution.getDebugState();
         if (state == null)
         {
             return Collections.emptyList();
         }
 
-        List<LegendDebug.Variable> variables = new ArrayList<>();
-        for (Pair<String, String> variable : state.getVariableTypeAndMultiplicity())
-        {
-            variables.add(new LegendDebug.Variable(variable.getOne(), variable.getTwo(), variable.getTwo()));
-        }
-        return variables;
+        return state.variables(variablesReference);
     }
 
     boolean isPaused()
