@@ -108,6 +108,8 @@ The VS Code debug adapter is an inline Debug Adapter Protocol bridge over LSP re
 
 While paused, the adapter exposes a single `Locals` scope with `variablesReference: 1`. VS Code then requests variables for that reference, and the adapter forwards the request to `legend/debug/variables`. Reference `1` is the root locals reference; expandable child references are allocated and resolved by the server. On continue or step, the adapter marks execution running, clears stack frames, emits `continued`, and invalidates variables so stale locals disappear until the next pause.
 
+The Debug Console can evaluate Pure expressions only while execution is paused. Expressions run against the current frame locals by compiling a temporary lambda with those locals as parameters, so examples like `$person.firstName`, `person.firstName`, `numbers->size()`, and `test::debug::fullName($person)` work when those locals are in scope. Evaluation suppresses debug pauses inside the expression, but it still executes the requested Pure code; expensive expressions or functions backed by native/runtime behavior can take time or have observable effects.
+
 ## Debugging the Server
 
 The server writes `[LSP-DEBUG]` messages to stderr. In VS Code, open Output panel and select "Legend Pure LSP" to see:

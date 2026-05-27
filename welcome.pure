@@ -1,0 +1,221 @@
+###Pure
+import meta::core::runtime::*;
+import meta::external::store::model::*;
+import meta::pure::graphFetch::execution::*;
+import meta::pure::mapping::*;
+
+Class debugger::source::Address
+{
+  line1: String[1];
+  city: String[1];
+  country: String[1];
+}
+
+Class debugger::source::Employee
+{
+  firstName: String[1];
+  lastName: String[1];
+  title: String[1];
+  age: Integer[1];
+}
+
+Class debugger::source::Firm
+{
+  legalName: String[1];
+  region: String[1];
+  headquarters: debugger::source::Address[1];
+  employees: debugger::source::Employee[*];
+}
+
+Class debugger::target::Office
+{
+  displayName: String[1];
+  cityCountry: String[1];
+}
+
+Class debugger::target::StaffMember
+{
+  fullName: String[1];
+  role: String[1];
+  seniority: String[1];
+}
+
+Class debugger::target::CompanySummary
+{
+  name: String[1];
+  market: String[1];
+  office: debugger::target::Office[1];
+  seniorStaff: debugger::target::StaffMember[*];
+}
+
+function debugger::seniority(age: Integer[1]): String[1]
+{
+  if($age >= 40, |'principal', |if($age >= 30, |'senior', |'associate'));
+}
+
+function debugger::sampleFirmData(): String[1]
+{
+  'data:application/json,{"legalName":"Company 1","region":"Market 1","headquarters":{"line1":"Address 1","city":"City 1","country":"Country 1"},"employees":[{"firstName":"Employee","lastName":"1","title":"Role 1","age":42},{"firstName":"Employee","lastName":"2","title":"Role 2","age":36},{"firstName":"Employee","lastName":"3","title":"Role 3","age":27}]}';
+}
+
+function debugger::m2mRuntime(): Runtime[1]
+{
+  ^Runtime(
+    connectionStores = ^ConnectionStore(
+      element = ^ModelStore(),
+      connection = ^JsonModelConnection(
+        class = debugger::source::Firm,
+        url = debugger::sampleFirmData()
+      )
+    )
+  );
+}
+
+function debugger::queryCompanySummariesWithFrom(): String[1]
+{
+  debugger::target::CompanySummary.all()
+    ->graphFetch(
+      #{
+        debugger::target::CompanySummary
+        {
+          name,
+          market,
+          office
+          {
+            displayName,
+            cityCountry
+          },
+          seniorStaff
+          {
+            fullName,
+            role,
+            seniority
+          }
+        }
+      }#
+    )
+    ->serialize(
+      #{
+        debugger::target::CompanySummary
+        {
+          name,
+          market,
+          office
+          {
+            displayName,
+            cityCountry
+          },
+          seniorStaff
+          {
+            fullName,
+            role,
+            seniority
+          }
+        }
+      }#
+    )
+    ->from(
+      debugger::mapping::CompanySummaryMapping,
+      debugger::m2mRuntime()
+    );
+}
+
+function debugger::generateCompanySummaryPlan(): meta::pure::executionPlan::ExecutionPlan[1]
+{
+  let tree = #{
+    debugger::target::CompanySummary
+    {
+      name,
+      market,
+      office
+      {
+        displayName,
+        cityCountry
+      },
+      seniorStaff
+      {
+        fullName,
+        role,
+        seniority
+      }
+    }
+  }#;
+
+  meta::pure::executionPlan::executionPlan(
+    |debugger::target::CompanySummary.all()->graphFetch($tree)->serialize($tree),
+    debugger::mapping::CompanySummaryMapping,
+    debugger::m2mRuntime(),
+    meta::pure::extension::defaultExtensions()
+  );
+}
+
+function debugger::executeCompanySummaryQuery(): meta::pure::mapping::Result<Any|*>[1]
+{
+  let tree = #{
+    debugger::target::CompanySummary
+    {
+      name,
+      market,
+      office
+      {
+        displayName,
+        cityCountry
+      },
+      seniorStaff
+      {
+        fullName,
+        role,
+        seniority
+      }
+    }
+  }#;
+
+  execute(
+    |debugger::target::CompanySummary.all()->graphFetch($tree)->serialize($tree),
+    debugger::mapping::CompanySummaryMapping,
+    debugger::m2mRuntime(),
+    meta::pure::extension::defaultExtensions()
+  );
+}
+
+function go(): Any[*]
+{
+  let plan = debugger::generateCompanySummaryPlan();
+  let nodeCount = $plan.rootExecutionNode.childNodes()->size();
+  println('Generated execution plan nodes: ' + $nodeCount->toString());
+
+  let result = debugger::executeCompanySummaryQuery();
+  let json = $result.values->toOne()->cast(@String);
+  println($json);
+  $json;
+}
+
+###Mapping
+Mapping debugger::mapping::CompanySummaryMapping
+(
+  *debugger::target::CompanySummary: Pure
+  {
+    ~src debugger::source::Firm
+    name: $src.legalName,
+    market: $src.region,
+    office[debugger_target_Office]: $src,
+    seniorStaff[debugger_target_StaffMember]: $src.employees
+      ->filter(e | $e.age >= 30)
+      ->sortBy(e | $e.lastName)
+  }
+
+  debugger::target::Office[debugger_target_Office]: Pure
+  {
+    ~src debugger::source::Firm
+    displayName: $src.legalName + ' headquarters',
+    cityCountry: $src.headquarters.city + ', ' + $src.headquarters.country
+  }
+
+  debugger::target::StaffMember[debugger_target_StaffMember]: Pure
+  {
+    ~src debugger::source::Employee
+    fullName: $src.firstName + ' ' + $src.lastName,
+    role: $src.title,
+    seniority: debugger::seniority($src.age)
+  }
+)

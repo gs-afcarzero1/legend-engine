@@ -421,6 +421,10 @@ public class LegendDebugSessionTest
         Assert.assertTrue("Pipeline local evaluate should succeed: " + pipeline.getError(), pipeline.isSuccess());
         Assert.assertEquals("2", pipeline.getResult());
 
+        LegendDebug.EvaluateResult functionCall = debug.evaluate("test::debug::fullName($person)");
+        Assert.assertTrue("Function call on local should succeed: " + functionCall.getError(), functionCall.isSuccess());
+        Assert.assertEquals("Ada Lovelace", functionCall.getResult());
+
         debug.stop();
     }
 
@@ -564,6 +568,10 @@ public class LegendDebugSessionTest
                 "function test::debug::routed():String[1]\n" +
                 "{\n" +
                 "  'routed';\n" +
+                "}\n" +
+                "function test::debug::fullName(person: test::debug::Person[1]):String[1]\n" +
+                "{\n" +
+                "  $person.firstName + ' ' + $person.lastName;\n" +
                 "}\n" +
                 "function go():Any[*]\n" +
                 "{\n" +

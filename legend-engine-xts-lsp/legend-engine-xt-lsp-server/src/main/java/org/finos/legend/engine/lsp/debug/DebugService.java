@@ -36,6 +36,7 @@ public class DebugService
     private final Supplier<Map<String, String>> openDocumentSourceSnapshot;
 
     private volatile LegendDebugSession debugSession;
+    private int sessionGeneration;
 
     public DebugService(PureRuntimeManager runtimeManager, RepositoryScanner repositoryScanner,
                         UriMapper uriMapper, Supplier<Map<String, String>> openDocumentSourceSnapshot)
@@ -46,7 +47,7 @@ public class DebugService
         this.openDocumentSourceSnapshot = openDocumentSourceSnapshot;
     }
 
-    public synchronized LegendDebug.Response start(LegendDebug.StartParams params)
+    public LegendDebug.Response start(LegendDebug.StartParams params)
     {
         LegendPureSession session = this.runtimeManager.getSession();
         if (session == null || !session.isInitialized())
@@ -54,31 +55,49 @@ public class DebugService
             return LegendDebug.Response.error("Runtime not initialized");
         }
 
-        stopActiveSession();
+        int startGeneration;
+        LegendDebugSession previousSession;
+        synchronized (this)
+        {
+            startGeneration = ++this.sessionGeneration;
+            previousSession = this.debugSession;
+            this.debugSession = null;
+        }
+        stopSession(previousSession);
+
+        LegendDebugSession nextSession = null;
         try
         {
-            LegendDebugSession nextSession = LegendDebugSession.create(
+            nextSession = LegendDebugSession.create(
                     session,
                     this.repositoryScanner,
                     this.uriMapper,
                     this.openDocumentSourceSnapshot.get(),
                     params == null ? null : params.getFunction(),
                     params == null ? Collections.emptyList() : params.getBreakpoints());
-            this.debugSession = nextSession;
+            if (!setActiveSession(startGeneration, nextSession))
+            {
+                nextSession.stop();
+                return LegendDebug.Response.completed(null);
+            }
 
             LegendDebug.Response response = nextSession.start();
-            clearIfTerminal(response);
+            clearIfTerminal(nextSession, response);
             return response;
         }
         catch (Exception e)
         {
             LOGGER.error("Debug start failed", e);
-            this.debugSession = null;
+            if (nextSession != null)
+            {
+                clearIfTerminal(nextSession, LegendDebug.Response.completed(null));
+                nextSession.stop();
+            }
             return LegendDebug.Response.error(message(e));
         }
     }
 
-    public synchronized LegendDebug.Response continueExecution()
+    public LegendDebug.Response continueExecution()
     {
         LegendDebugSession active = this.debugSession;
         if (active == null)
@@ -86,11 +105,11 @@ public class DebugService
             return LegendDebug.Response.error("No active debug session");
         }
         LegendDebug.Response response = active.continueExecution();
-        clearIfTerminal(response);
+        clearIfTerminal(active, response);
         return response;
     }
 
-    public synchronized LegendDebug.Response stepIn()
+    public LegendDebug.Response stepIn()
     {
         LegendDebugSession active = this.debugSession;
         if (active == null)
@@ -98,11 +117,11 @@ public class DebugService
             return LegendDebug.Response.error("No active debug session");
         }
         LegendDebug.Response response = active.stepIn();
-        clearIfTerminal(response);
+        clearIfTerminal(active, response);
         return response;
     }
 
-    public synchronized LegendDebug.Response stepOver()
+    public LegendDebug.Response stepOver()
     {
         LegendDebugSession active = this.debugSession;
         if (active == null)
@@ -110,11 +129,11 @@ public class DebugService
             return LegendDebug.Response.error("No active debug session");
         }
         LegendDebug.Response response = active.stepOver();
-        clearIfTerminal(response);
+        clearIfTerminal(active, response);
         return response;
     }
 
-    public synchronized LegendDebug.Response stepOut()
+    public LegendDebug.Response stepOut()
     {
         if (this.debugSession == null)
         {
@@ -123,7 +142,7 @@ public class DebugService
         return LegendDebug.Response.error("Step out is not supported by the current Pure debug runtime");
     }
 
-    public synchronized LegendDebug.EvaluateResult evaluate(LegendDebug.EvaluateParams params)
+    public LegendDebug.EvaluateResult evaluate(LegendDebug.EvaluateParams params)
     {
         LegendDebugSession active = this.debugSession;
         if (active == null || !active.isPaused())
@@ -133,27 +152,44 @@ public class DebugService
         return active.evaluate(params == null ? "" : params.getExpression());
     }
 
-    public synchronized List<LegendDebug.Variable> variables(LegendDebug.VariablesParams params)
+    public List<LegendDebug.Variable> variables(LegendDebug.VariablesParams params)
     {
         LegendDebugSession active = this.debugSession;
         return active == null ? Collections.emptyList() : active.variables(params == null ? 1 : params.getVariablesReference());
     }
 
-    public synchronized LegendDebug.Response stop()
+    public LegendDebug.Response stop()
     {
-        LegendDebugSession active = this.debugSession;
-        this.debugSession = null;
+        LegendDebugSession active = clearActiveSession();
         return active == null ? LegendDebug.Response.completed(null) : active.stop();
     }
 
-    public synchronized void shutdown()
+    public void shutdown()
     {
         stopActiveSession();
     }
 
-    private void clearIfTerminal(LegendDebug.Response response)
+    private synchronized boolean setActiveSession(int generation, LegendDebugSession session)
     {
-        if (response != null && !"paused".equals(response.getState()))
+        if (this.sessionGeneration != generation)
+        {
+            return false;
+        }
+        this.debugSession = session;
+        return true;
+    }
+
+    private synchronized LegendDebugSession clearActiveSession()
+    {
+        this.sessionGeneration++;
+        LegendDebugSession active = this.debugSession;
+        this.debugSession = null;
+        return active;
+    }
+
+    private synchronized void clearIfTerminal(LegendDebugSession session, LegendDebug.Response response)
+    {
+        if (this.debugSession == session && response != null && !"paused".equals(response.getState()))
         {
             this.debugSession = null;
         }
@@ -161,11 +197,14 @@ public class DebugService
 
     private void stopActiveSession()
     {
-        LegendDebugSession active = this.debugSession;
-        if (active != null)
+        stopSession(clearActiveSession());
+    }
+
+    private void stopSession(LegendDebugSession session)
+    {
+        if (session != null)
         {
-            active.stop();
-            this.debugSession = null;
+            session.stop();
         }
     }
 

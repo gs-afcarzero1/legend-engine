@@ -59,8 +59,10 @@ class LegendDebugSession
     private final Map<String, LineMap> lineMaps;
     private final ByteArrayOutputStream output = new ByteArrayOutputStream();
     private final Object executionLock = new Object();
+    private final Object pauseStateLock = new Object();
 
     private volatile boolean stopped;
+    private volatile LegendDebugState visiblePausedState;
     private int outputOffset;
 
     private LegendDebugSession(UriMapper uriMapper, LegendDebugFunctionExecution functionExecution,
@@ -132,39 +134,28 @@ class LegendDebugSession
 
     LegendDebug.Response start()
     {
-        return runUntilPauseOrCompletion(RunMode.CONTINUE);
+        return runUntilPauseOrCompletion(RunMode.CONTINUE, false);
     }
 
     LegendDebug.Response continueExecution()
     {
-        if (!isPaused())
-        {
-            return LegendDebug.Response.error("Debug execution is not paused");
-        }
-        return runUntilPauseOrCompletion(RunMode.CONTINUE);
+        return runUntilPauseOrCompletion(RunMode.CONTINUE, true);
     }
 
     LegendDebug.Response stepIn()
     {
-        if (!isPaused())
-        {
-            return LegendDebug.Response.error("Debug execution is not paused");
-        }
-        return runUntilPauseOrCompletion(RunMode.STEP_IN);
+        return runUntilPauseOrCompletion(RunMode.STEP_IN, true);
     }
 
     LegendDebug.Response stepOver()
     {
-        if (!isPaused())
-        {
-            return LegendDebug.Response.error("Debug execution is not paused");
-        }
-        return runUntilPauseOrCompletion(RunMode.STEP_OVER);
+        return runUntilPauseOrCompletion(RunMode.STEP_OVER, true);
     }
 
     LegendDebug.Response stop()
     {
         this.stopped = true;
+        clearVisiblePausedState();
         this.functionExecution.abortDebug();
         this.functionExecution.getConsole().setConsole(false);
         return LegendDebug.Response.completed(readNewUserOutput());
@@ -172,19 +163,22 @@ class LegendDebugSession
 
     LegendDebug.EvaluateResult evaluate(String expression)
     {
-        LegendDebugState state = this.functionExecution.getDebugState();
-        if (state == null)
+        synchronized (this.pauseStateLock)
         {
-            return LegendDebug.EvaluateResult.error("Debug execution is not paused");
-        }
-        try
-        {
-            return state.evaluate(expression == null ? "" : expression);
-        }
-        catch (Exception e)
-        {
-            LOGGER.debug("Debug evaluate failed", e);
-            return LegendDebug.EvaluateResult.error(message(e));
+            LegendDebugState state = this.visiblePausedState;
+            if (state == null)
+            {
+                return LegendDebug.EvaluateResult.error("Debug execution is not paused");
+            }
+            try
+            {
+                return state.evaluate(expression == null ? "" : expression);
+            }
+            catch (Exception e)
+            {
+                LOGGER.debug("Debug evaluate failed", e);
+                return LegendDebug.EvaluateResult.error(message(e));
+            }
         }
     }
 
@@ -195,18 +189,21 @@ class LegendDebugSession
 
     List<LegendDebug.Variable> variables(int variablesReference)
     {
-        LegendDebugState state = this.functionExecution.getDebugState();
-        if (state == null)
+        synchronized (this.pauseStateLock)
         {
-            return Collections.emptyList();
-        }
+            LegendDebugState state = this.visiblePausedState;
+            if (state == null)
+            {
+                return Collections.emptyList();
+            }
 
-        return state.variables(variablesReference);
+            return state.variables(variablesReference);
+        }
     }
 
     boolean isPaused()
     {
-        return this.functionExecution.getDebugState() != null;
+        return getVisiblePausedState() != null;
     }
 
     String debugSourceContent(String sourceId)
@@ -215,16 +212,47 @@ class LegendDebugSession
         return source == null ? null : source.getContent();
     }
 
-    private LegendDebug.Response runUntilPauseOrCompletion(RunMode mode)
+    private LegendDebugState getVisiblePausedState()
+    {
+        synchronized (this.pauseStateLock)
+        {
+            return this.visiblePausedState;
+        }
+    }
+
+    private void setVisiblePausedState(LegendDebugState state)
+    {
+        synchronized (this.pauseStateLock)
+        {
+            this.visiblePausedState = state;
+        }
+    }
+
+    private void clearVisiblePausedState()
+    {
+        synchronized (this.pauseStateLock)
+        {
+            this.visiblePausedState = null;
+        }
+    }
+
+    private LegendDebug.Response runUntilPauseOrCompletion(RunMode mode, boolean requirePaused)
     {
         synchronized (this.executionLock)
         {
+            if (requirePaused && getVisiblePausedState() == null)
+            {
+                return LegendDebug.Response.error("Debug execution is not paused");
+            }
+
             PauseLocation startLocation = currentPauseLocation();
+            clearVisiblePausedState();
             StringBuilder visibleOutput = new StringBuilder();
             while (true)
             {
                 if (this.stopped)
                 {
+                    clearVisiblePausedState();
                     visibleOutput.append(readNewUserOutput());
                     return LegendDebug.Response.completed(visibleOutput.toString());
                 }
@@ -236,6 +264,7 @@ class LegendDebugSession
                 catch (Exception e)
                 {
                     this.functionExecution.getConsole().setConsole(false);
+                    clearVisiblePausedState();
                     visibleOutput.append(readNewUserOutput());
                     if (this.stopped)
                     {
@@ -250,6 +279,7 @@ class LegendDebugSession
                 if (state == null)
                 {
                     this.functionExecution.getConsole().setConsole(false);
+                    clearVisiblePausedState();
                     return LegendDebug.Response.completed(visibleOutput.toString());
                 }
 
@@ -257,6 +287,7 @@ class LegendDebugSession
                 PauseDecision decision = pauseDecision(mode, startLocation, pauseLocation);
                 if (decision.pause)
                 {
+                    setVisiblePausedState(state);
                     return LegendDebug.Response.paused(
                             visibleOutput.toString(),
                             stackFrames(state, pauseLocation),

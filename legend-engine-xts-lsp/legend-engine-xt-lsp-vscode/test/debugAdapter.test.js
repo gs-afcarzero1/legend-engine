@@ -204,6 +204,38 @@ test('paused debug response exposes Locals and resolves root variables', async (
     }]);
 });
 
+test('paused evaluate forwards current-frame expression to the server', async () =>
+{
+    const start = createDeferred();
+    const client = createClient({
+        'legend/debug/start': () => start.promise,
+        'legend/debug/evaluate': params => Promise.resolve({
+            success: true,
+            result: 'Ada Lovelace',
+            variablesReference: 0,
+        }),
+    });
+    const { adapter, messages } = createAdapter(client);
+
+    await launchAndPause(adapter, start);
+
+    sendRequest(adapter, 'evaluate', {
+        expression: 'test::debug::fullName($person)',
+        context: 'repl',
+        frameId: 1,
+    });
+    await flushAsyncWork();
+
+    assert.deepEqual(
+        client.calls.find(call => call.method === 'legend/debug/evaluate').params,
+        { expression: 'test::debug::fullName($person)' }
+    );
+    assert.deepEqual(latestResponse(messages, 'evaluate').body, {
+        result: 'Ada Lovelace',
+        variablesReference: 0,
+    });
+});
+
 test('continue clears stale stack frames and variables until the next pause', async () =>
 {
     const start = createDeferred();
@@ -253,6 +285,45 @@ test('continue clears stale stack frames and variables until the next pause', as
     assert.equal(events(messages, 'stopped').length, 2);
     sendRequest(adapter, 'scopes', { frameId: 1 });
     assert.equal(latestResponse(messages, 'scopes').body.scopes[0].name, 'Locals');
+});
+
+test('running evaluate fails locally instead of waiting for the next pause', async () =>
+{
+    const start = createDeferred();
+    const continued = createDeferred();
+    const client = createClient({
+        'legend/debug/start': () => start.promise,
+        'legend/debug/continue': () => continued.promise,
+        'legend/debug/evaluate': () => Promise.resolve({
+            success: true,
+            result: 'should not be used',
+            variablesReference: 0,
+        }),
+    });
+    const { adapter, messages } = createAdapter(client);
+
+    await launchAndPause(adapter, start);
+
+    sendRequest(adapter, 'continue');
+    await flushAsyncWork();
+
+    const evaluateCallsBeforeRunningRequest = client.calls.filter(call => call.method === 'legend/debug/evaluate').length;
+    sendRequest(adapter, 'evaluate', {
+        expression: 'test::debug::fullName($person)',
+        context: 'repl',
+        frameId: 1,
+    });
+    await flushAsyncWork();
+
+    assert.equal(latestResponse(messages, 'evaluate').success, false);
+    assert.equal(latestResponse(messages, 'evaluate').message, 'Debug execution is not paused');
+    assert.equal(
+        client.calls.filter(call => call.method === 'legend/debug/evaluate').length,
+        evaluateCallsBeforeRunningRequest
+    );
+
+    continued.resolve(pausedResponse('step'));
+    await flushAsyncWork();
 });
 
 test('terminate responds immediately without waiting for server readiness', async () =>

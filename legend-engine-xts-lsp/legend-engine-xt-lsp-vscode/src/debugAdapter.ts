@@ -246,6 +246,11 @@ export class LegendPureDebugAdapter implements vscode.DebugAdapter {
 
     private async handleEvaluate(request: RequestMessage): Promise<void> {
         try {
+            if (this.executionState !== 'paused') {
+                this.sendResponse(request, undefined, false, 'Debug execution is not paused');
+                return;
+            }
+
             const expression = String(request.arguments?.expression || '');
             const client = await this.getReadyClient();
             const result = await client.sendRequest<DebugEvaluateResult>('legend/debug/evaluate', { expression });
