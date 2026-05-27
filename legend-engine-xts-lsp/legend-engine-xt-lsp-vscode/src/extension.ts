@@ -22,6 +22,7 @@ import {
     LanguageClientOptions,
     ServerOptions,
 } from 'vscode-languageclient/node';
+import { LegendPureDebugAdapter, LegendPureDebugConfigurationProvider } from './debugAdapter';
 import { PureFileSystemProvider } from './pureFileSystemProvider';
 import { PurePackageTreeProvider } from './purePackageTree';
 
@@ -203,6 +204,20 @@ export function activate(context: ExtensionContext): void {
             if (choice === reload) {
                 await commands.executeCommand('workbench.action.reloadWindow');
             }
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.debug.registerDebugConfigurationProvider(
+            'legend-pure',
+            new LegendPureDebugConfigurationProvider()
+        )
+    );
+    context.subscriptions.push(
+        vscode.debug.registerDebugAdapterDescriptorFactory('legend-pure', {
+            createDebugAdapterDescriptor: () => new vscode.DebugAdapterInlineImplementation(
+                new LegendPureDebugAdapter(() => client, serverReady)
+            ),
         })
     );
 

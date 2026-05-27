@@ -12,7 +12,8 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "onLanguage:pure"
+    "onLanguage:pure",
+    "onDebug"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -91,6 +92,11 @@
         }
       }
     ],
+    "breakpoints": [
+      {
+        "language": "pure"
+      }
+    ],
     "configuration": {
       "title": "Legend Pure",
       "properties": {
@@ -139,6 +145,55 @@
         }
       ]
     },
+    "debuggers": [
+      {
+        "type": "legend-pure",
+        "label": "Legend Pure",
+        "languages": [
+          "pure"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "type": "object",
+            "required": [
+              "type",
+              "request",
+              "name"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "legend-pure"
+                ]
+              },
+              "request": {
+                "type": "string",
+                "enum": [
+                  "launch"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "function": {
+                "type": "string",
+                "default": "go():Any[*]",
+                "description": "Zero-argument Pure function signature to debug."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "legend-pure",
+            "request": "launch",
+            "name": "Debug Pure go()",
+            "function": "go():Any[*]"
+          }
+        ]
+      }
+    ],
     "languageModelTools": [
       {
         "name": "legend-pure-search-symbols",

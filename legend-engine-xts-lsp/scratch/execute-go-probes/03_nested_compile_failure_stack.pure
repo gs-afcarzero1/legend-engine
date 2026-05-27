@@ -1,0 +1,12 @@
+function probeNestedCompileFailureStack():Any[*]
+{
+  print('--- nested compiler failure stack probe ---', 1);
+  print('The next line should fail and report this file/line plus the nested compiler error.', 1);
+
+  meta::legend::compile(
+    'Class scratch::Broken\n' +
+    '{\n' +
+    '  missing: scratch::Missing[1];\n' +
+    '}\n'
+  );
+}

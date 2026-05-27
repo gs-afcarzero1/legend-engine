@@ -61,6 +61,7 @@
                                 <dependency>org.finos.legend.engine:legend-engine-pure-runtime-java-extension-compiled-functions-pureExtensions</dependency>
                                 <dependency>org.finos.legend.engine:legend-engine-pure-runtime-java-extension-interpreted-functions-legendCompiler</dependency>
                                 <dependency>org.finos.legend.engine:legend-engine-pure-runtime-java-extension-interpreted-functions-javaCompiler</dependency>
+                                <dependency>org.finos.legend.engine:legend-engine-pure-ide-light-pure-debug</dependency>
                                 <dependency>org.eclipse.collections:eclipse-collections</dependency>
                             </ignoredUnusedDeclaredDependencies>
                         </configuration>
@@ -130,8 +131,19 @@
             <groupId>org.finos.legend.pure</groupId>
             <artifactId>legend-pure-runtime-java-engine-interpreted</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-pure-ide-light-interpreted-functions</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
         <!-- Pure IDE Light core interpreted execution extensions -->
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-pure-ide-light-pure-debug</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
         <dependency>
             <groupId>org.finos.legend.engine</groupId>
             <artifactId>legend-engine-pure-runtime-java-extension-interpreted-functions-standard</artifactId>

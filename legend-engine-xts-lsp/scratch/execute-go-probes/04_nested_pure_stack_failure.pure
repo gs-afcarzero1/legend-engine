@@ -1,0 +1,16 @@
+function probeNestedPureStackFailure():Any[*]
+{
+  print('--- nested Pure execution stack probe ---', 1);
+  probeLevelOne();
+}
+
+function probeLevelOne():Any[*]
+{
+  probeLevelTwo('from level one');
+}
+
+function probeLevelTwo(label:String[1]):Any[*]
+{
+  print('label=' + $label, 1);
+  fail('intentional failure from probeLevelTwo');
+}

@@ -52,8 +52,10 @@ import org.eclipse.lsp4j.services.LanguageServer;
 import org.eclipse.lsp4j.services.TextDocumentService;
 import org.eclipse.lsp4j.services.WorkspaceService;
 import org.finos.legend.engine.lsp.diagnostics.DiagnosticService;
+import org.finos.legend.engine.lsp.debug.DebugService;
 import org.finos.legend.engine.lsp.mutation.SourceMutationService;
 import org.finos.legend.engine.lsp.protocol.ExecuteGoResult;
+import org.finos.legend.engine.lsp.protocol.LegendDebug;
 import org.finos.legend.engine.lsp.protocol.LegendLanguageClient;
 import org.finos.legend.engine.lsp.protocol.LspStatus;
 import org.finos.legend.engine.lsp.runtime.PureRuntimeManager;
@@ -76,6 +78,7 @@ public class LegendPureLspServer implements LanguageServer, LanguageClientAware
     private final LegendTextDocumentService textDocumentService;
     private final LegendWorkspaceService workspaceService;
     private final PureRuntimeManager runtimeManager;
+    private final DebugService debugService;
     private final ExecutorService requestExecutor = Executors.newFixedThreadPool(4, r ->
     {
         Thread t = new Thread(r, "legend-pure-lsp-request");
@@ -91,6 +94,11 @@ public class LegendPureLspServer implements LanguageServer, LanguageClientAware
                 this.uriMapper,
                 this.symbolProvider,
                 this.textDocumentService::compileOpenDocuments);
+        this.debugService = new DebugService(
+                this.runtimeManager,
+                this.repositoryScanner,
+                this.uriMapper,
+                this.textDocumentService::getOpenDocumentSourceSnapshot);
         this.workspaceService = new LegendWorkspaceService(this);
     }
 
@@ -193,6 +201,7 @@ public class LegendPureLspServer implements LanguageServer, LanguageClientAware
     @Override
     public CompletableFuture<Object> shutdown()
     {
+        this.debugService.shutdown();
         this.textDocumentService.shutdown();
         this.runtimeManager.shutdown();
         this.requestExecutor.shutdownNow();
@@ -301,6 +310,54 @@ public class LegendPureLspServer implements LanguageServer, LanguageClientAware
             LspLog.debug("getSourceContent: serving " + resolvedId + " (" + source.getContent().length() + " chars)");
             return source.getContent();
         });
+    }
+
+    @JsonRequest("legend/debug/start")
+    public CompletableFuture<LegendDebug.Response> debugStart(LegendDebug.StartParams params)
+    {
+        return supplyAsync(() -> this.debugService.start(params));
+    }
+
+    @JsonRequest("legend/debug/continue")
+    public CompletableFuture<LegendDebug.Response> debugContinue()
+    {
+        return supplyAsync(this.debugService::continueExecution);
+    }
+
+    @JsonRequest("legend/debug/stepIn")
+    public CompletableFuture<LegendDebug.Response> debugStepIn()
+    {
+        return supplyAsync(this.debugService::stepIn);
+    }
+
+    @JsonRequest("legend/debug/stepOver")
+    public CompletableFuture<LegendDebug.Response> debugStepOver()
+    {
+        return supplyAsync(this.debugService::stepOver);
+    }
+
+    @JsonRequest("legend/debug/stepOut")
+    public CompletableFuture<LegendDebug.Response> debugStepOut()
+    {
+        return supplyAsync(this.debugService::stepOut);
+    }
+
+    @JsonRequest("legend/debug/evaluate")
+    public CompletableFuture<LegendDebug.EvaluateResult> debugEvaluate(LegendDebug.EvaluateParams params)
+    {
+        return supplyAsync(() -> this.debugService.evaluate(params));
+    }
+
+    @JsonRequest("legend/debug/variables")
+    public CompletableFuture<List<LegendDebug.Variable>> debugVariables()
+    {
+        return supplyAsync(this.debugService::variables);
+    }
+
+    @JsonRequest("legend/debug/stop")
+    public CompletableFuture<LegendDebug.Response> debugStop()
+    {
+        return supplyAsync(this.debugService::stop);
     }
 
     private static List<Path> extractWorkspaceRoots(InitializeParams params)

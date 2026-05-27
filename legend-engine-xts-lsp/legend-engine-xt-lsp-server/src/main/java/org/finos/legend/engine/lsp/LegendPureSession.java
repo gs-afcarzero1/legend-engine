@@ -47,6 +47,7 @@ import org.slf4j.LoggerFactory;
 public class LegendPureSession
 {
     private static final Logger LOGGER = LoggerFactory.getLogger(LegendPureSession.class);
+    private static final String DEBUG_REPOSITORY_NAME = "pure_ide_debug";
 
     private volatile PureRuntime pureRuntime;
     private volatile FunctionExecution functionExecution;
@@ -72,27 +73,74 @@ public class LegendPureSession
         this.workspaceScanner = scanner;
         this.classpathRepositoryNames = normalizeRepositoryNames(classpathRepositoryNames);
 
+        this.pureRuntime = newRuntime(scanner, true, this.classpathRepositoryNames);
+
+        this.functionExecution = new StackPreservingFunctionExecutionInterpreted();
+        this.functionExecution.init(this.pureRuntime, new Message(""));
+        LspLog.info("StackPreservingFunctionExecutionInterpreted initialized");
+
+        this.initialized = true;
+        long elapsed = (System.currentTimeMillis() - start) / 1000;
+        LOGGER.info("Pure runtime initialized in {}s", elapsed);
+    }
+
+    public static PureRuntime newRuntime(RepositoryScanner scanner, boolean includeWorkspaceStorages, Collection<String> classpathRepositoryNames)
+    {
+        return newRuntime(scanner, includeWorkspaceStorages, classpathRepositoryNames, Collections.emptySet());
+    }
+
+    public static PureRuntime newDebugRuntime(RepositoryScanner scanner, Collection<String> classpathRepositoryNames)
+    {
+        Set<String> normalizedClasspathRepositoryNames = normalizeRepositoryNames(classpathRepositoryNames);
+        return newRuntime(scanner, true, normalizedClasspathRepositoryNames, Collections.singleton(DEBUG_REPOSITORY_NAME),
+                true, normalizedClasspathRepositoryNames);
+    }
+
+    private static PureRuntime newRuntime(RepositoryScanner scanner, boolean includeWorkspaceStorages, Collection<String> classpathRepositoryNames,
+                                          Collection<String> additionalWorkspaceDependencies)
+    {
+        return newRuntime(scanner, includeWorkspaceStorages, classpathRepositoryNames, additionalWorkspaceDependencies, false);
+    }
+
+    private static PureRuntime newRuntime(RepositoryScanner scanner, boolean includeWorkspaceStorages, Collection<String> classpathRepositoryNames,
+                                          Collection<String> additionalWorkspaceDependencies, boolean workspaceDefinitionsOnly)
+    {
+        return newRuntime(scanner, includeWorkspaceStorages, classpathRepositoryNames, additionalWorkspaceDependencies,
+                workspaceDefinitionsOnly, Collections.emptySet());
+    }
+
+    private static PureRuntime newRuntime(RepositoryScanner scanner, boolean includeWorkspaceStorages, Collection<String> classpathRepositoryNames,
+                                          Collection<String> additionalWorkspaceDependencies, boolean workspaceDefinitionsOnly,
+                                          Collection<String> excludedWorkspaceRepositoryNames)
+    {
+        Set<String> normalizedClasspathRepositoryNames = normalizeRepositoryNames(classpathRepositoryNames);
         MutableList<RepositoryCodeStorage> storages = Lists.mutable.empty();
         Set<String> workspaceRepoNames = Collections.emptySet();
 
-        if (scanner != null && !scanner.getMappings().isEmpty())
+        if (includeWorkspaceStorages && scanner != null && !scanner.getMappings().isEmpty())
         {
-            MutableList<RepositoryCodeStorage> workspaceStorages = scanner.buildWorkspaceStorages();
+            MutableList<RepositoryCodeStorage> workspaceStorages = workspaceDefinitionsOnly
+                    ? scanner.buildWorkspaceDefinitionStorages(additionalWorkspaceDependencies, excludedWorkspaceRepositoryNames)
+                    : scanner.buildWorkspaceStorages(additionalWorkspaceDependencies);
             storages.addAll(workspaceStorages);
-            workspaceRepoNames = scanner.getWorkspaceRepoNames();
+            workspaceRepoNames = workspaceDefinitionsOnly
+                    ? filteredWorkspaceRepoNames(scanner.getWorkspaceRepoNames(), excludedWorkspaceRepositoryNames)
+                    : scanner.getWorkspaceRepoNames();
             LspLog.debug("Loaded " + workspaceStorages.size()
-                    + " workspace repos (MutableFS from disk)");
+                    + (workspaceDefinitionsOnly
+                    ? " workspace repo definition storage(s)"
+                    : " workspace repos (MutableFS from disk)"));
         }
 
         org.eclipse.collections.api.RichIterable<CodeRepository> classpathRepos =
                 CodeRepositoryProviderHelper.findCodeRepositories();
         Set<String> finalWorkspaceNames = workspaceRepoNames;
-        Set<String> unresolvedClasspathRepositoryNames = new LinkedHashSet<>(this.classpathRepositoryNames);
+        Set<String> unresolvedClasspathRepositoryNames = new LinkedHashSet<>(normalizedClasspathRepositoryNames);
         MutableList<CodeRepository> classpathStorageRepos = Lists.mutable.empty();
         for (CodeRepository repo : classpathRepos)
         {
             String name = repo.getName();
-            if (shouldLoadClasspathRepository(name, finalWorkspaceNames, this.classpathRepositoryNames))
+            if (shouldLoadClasspathRepository(name, finalWorkspaceNames, normalizedClasspathRepositoryNames))
             {
                 classpathStorageRepos.add(repo);
                 if (name != null)
@@ -100,7 +148,7 @@ public class LegendPureSession
                     unresolvedClasspathRepositoryNames.remove(name);
                 }
             }
-            else if (name != null && this.classpathRepositoryNames.contains(name) && finalWorkspaceNames.contains(name))
+            else if (name != null && normalizedClasspathRepositoryNames.contains(name) && finalWorkspaceNames.contains(name))
             {
                 unresolvedClasspathRepositoryNames.remove(name);
                 LspLog.debug("Configured classpath repo is loaded from workspace instead: " + name);
@@ -125,13 +173,13 @@ public class LegendPureSession
         LOGGER.info("Building PureRuntime with {} storage(s)...", storages.size());
         CompositeCodeStorage codeStorage = new CompositeCodeStorage(storages.toArray(new RepositoryCodeStorage[0]));
 
-        this.pureRuntime = new PureRuntimeBuilder(codeStorage)
+        PureRuntime runtime = new PureRuntimeBuilder(codeStorage)
                 .withMessage(new Message(""))
                 .setUseFastCompiler(true)
                 .build();
 
         LOGGER.info("Initializing Pure runtime...");
-        this.pureRuntime.initialize(new Message("")
+        runtime.initialize(new Message("")
         {
             @Override
             public void setMessage(String message)
@@ -141,13 +189,22 @@ public class LegendPureSession
             }
         });
 
-        this.functionExecution = new StackPreservingFunctionExecutionInterpreted();
-        this.functionExecution.init(this.pureRuntime, new Message(""));
-        LspLog.info("StackPreservingFunctionExecutionInterpreted initialized");
+        return runtime;
+    }
 
-        this.initialized = true;
-        long elapsed = (System.currentTimeMillis() - start) / 1000;
-        LOGGER.info("Pure runtime initialized in {}s", elapsed);
+    private static Set<String> filteredWorkspaceRepoNames(Set<String> workspaceRepositoryNames, Collection<String> excludedRepositoryNames)
+    {
+        if (workspaceRepositoryNames == null || workspaceRepositoryNames.isEmpty())
+        {
+            return Collections.emptySet();
+        }
+        if (excludedRepositoryNames == null || excludedRepositoryNames.isEmpty())
+        {
+            return workspaceRepositoryNames;
+        }
+        Set<String> filtered = new LinkedHashSet<>(workspaceRepositoryNames);
+        filtered.removeAll(excludedRepositoryNames);
+        return Collections.unmodifiableSet(filtered);
     }
 
     public synchronized void reinitialize()
@@ -325,7 +382,7 @@ public class LegendPureSession
         {
             return false;
         }
-        return isPlatformRepo(name) || classpathRepositoryNames.contains(name);
+        return isPlatformRepo(name) || DEBUG_REPOSITORY_NAME.equals(name) || classpathRepositoryNames.contains(name);
     }
 
     private static Set<String> normalizeRepositoryNames(Collection<String> repositoryNames)
@@ -357,6 +414,11 @@ public class LegendPureSession
     public FunctionExecution getFunctionExecution()
     {
         return this.functionExecution;
+    }
+
+    public Set<String> getClasspathRepositoryNames()
+    {
+        return this.classpathRepositoryNames;
     }
 
     public boolean isInitialized()

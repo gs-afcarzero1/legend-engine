@@ -32,6 +32,8 @@ public class LegendPureSessionTest
                 "platform", Collections.emptySet(), Collections.emptySet()));
         Assert.assertTrue(LegendPureSession.shouldLoadClasspathRepository(
                 "platform_pure", Collections.emptySet(), Collections.emptySet()));
+        Assert.assertTrue(LegendPureSession.shouldLoadClasspathRepository(
+                "pure_ide_debug", Collections.emptySet(), Collections.emptySet()));
     }
 
     @Test

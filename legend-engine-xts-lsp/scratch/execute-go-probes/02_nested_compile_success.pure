@@ -1,0 +1,22 @@
+function notgo():Any[*]
+{
+  print('--- nested compiler success probe ---', 1);
+
+  let elements = meta::legend::compile(
+    'Enum scratch::Tier\n' +
+    '{\n' +
+    '  gold,\n' +
+    '  silver,\n' +
+    '  bronze\n' +
+    '}\n' +
+    '\n' +
+    'Class scratch::Person\n' +
+    '{\n' +
+    '  name: String[1];\n' +
+    '  score: Integer[1];\n' +
+    '}\n'
+  );
+
+  print('compiled count=' + $elements->size()->toString(), 1);
+  print('compiled names=' + $elements.name->sort()->makeString(','), 1);
+}

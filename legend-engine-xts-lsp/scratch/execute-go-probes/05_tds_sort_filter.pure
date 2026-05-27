@@ -1,0 +1,18 @@
+function probeTdsSortFilter():Any[*]
+{
+  print('--- TDS sort/filter probe ---', 1);
+
+  let trades = #TDS
+                 id,symbol,qty,price
+                 1,AAPL,10,182.5
+                 2,MSFT,5,420.0
+                 3,AAPL,7,185.1
+                 4,NVDA,3,940.2
+               #;
+
+  let largeTrades = $trades
+    ->meta::pure::functions::relation::filter(t: (id:Integer[0..1], symbol:String[0..1], qty:Integer[0..1], price:Float[0..1])[1]|$t.qty >= 5)
+    ->meta::pure::functions::relation::sort([~symbol->meta::pure::functions::relation::ascending(), ~price->meta::pure::functions::relation::descending()]);
+
+  print($largeTrades->toString(), 1);
+}

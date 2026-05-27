@@ -21,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,9 +30,11 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.eclipse.collections.api.factory.Lists;
 import org.eclipse.collections.api.list.MutableList;
+import org.eclipse.collections.api.set.MutableSet;
 import org.finos.legend.pure.m3.serialization.filesystem.repository.CodeRepository;
 import org.finos.legend.pure.m3.serialization.filesystem.repository.GenericCodeRepository;
 import org.finos.legend.pure.m3.serialization.filesystem.usercodestorage.RepositoryCodeStorage;
+import org.finos.legend.pure.m3.serialization.filesystem.usercodestorage.empty.EmptyCodeStorage;
 import org.finos.legend.pure.m3.serialization.filesystem.usercodestorage.fs.MutableFSCodeStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -243,6 +246,11 @@ public class RepositoryScanner
      */
     public MutableList<RepositoryCodeStorage> buildWorkspaceStorages()
     {
+        return buildWorkspaceStorages(Collections.emptySet());
+    }
+
+    public MutableList<RepositoryCodeStorage> buildWorkspaceStorages(Collection<String> additionalDependencies)
+    {
         MutableList<RepositoryCodeStorage> storages = Lists.mutable.empty();
         for (Map.Entry<String, Path> entry : this.repoToDefinitionFile.entrySet())
         {
@@ -252,7 +260,9 @@ public class RepositoryScanner
 
             try
             {
-                CodeRepository repo = GenericCodeRepository.build(definitionFile);
+                CodeRepository repo = withAdditionalDependencies(
+                        GenericCodeRepository.build(definitionFile),
+                        additionalDependencies);
                 // FSCodeStorage prepends /<repoName>/ to paths relative to root.
                 // Files live at resources/<repoName>/..., so root must be
                 // resources/<repoName>/ to avoid double-prefixing.
@@ -272,6 +282,58 @@ public class RepositoryScanner
             }
         }
         return storages;
+    }
+
+    public MutableList<RepositoryCodeStorage> buildWorkspaceDefinitionStorages(Collection<String> additionalDependencies)
+    {
+        return buildWorkspaceDefinitionStorages(additionalDependencies, Collections.emptySet());
+    }
+
+    public MutableList<RepositoryCodeStorage> buildWorkspaceDefinitionStorages(Collection<String> additionalDependencies,
+                                                                               Collection<String> excludedRepositoryNames)
+    {
+        MutableList<CodeRepository> repositories = buildWorkspaceRepositories(additionalDependencies);
+        if (excludedRepositoryNames != null && !excludedRepositoryNames.isEmpty())
+        {
+            repositories.removeIf(repository -> excludedRepositoryNames.contains(repository.getName()));
+        }
+        return repositories.isEmpty()
+                ? Lists.mutable.empty()
+                : Lists.mutable.with(new EmptyCodeStorage(repositories));
+    }
+
+    private MutableList<CodeRepository> buildWorkspaceRepositories(Collection<String> additionalDependencies)
+    {
+        MutableList<CodeRepository> repositories = Lists.mutable.empty();
+        for (Path definitionFile : this.repoToDefinitionFile.values())
+        {
+            try
+            {
+                repositories.add(withAdditionalDependencies(
+                        GenericCodeRepository.build(definitionFile),
+                        additionalDependencies));
+            }
+            catch (Exception e)
+            {
+                LOGGER.warn("Failed to load repository definition '{}': {}", definitionFile, e.getMessage());
+            }
+        }
+        return repositories;
+    }
+
+    private static CodeRepository withAdditionalDependencies(GenericCodeRepository repository, Collection<String> additionalDependencies)
+    {
+        if (additionalDependencies == null || additionalDependencies.isEmpty())
+        {
+            return repository;
+        }
+
+        MutableSet<String> dependencies = repository.getDependencies().toSet();
+        dependencies.addAllIterable(additionalDependencies);
+        return GenericCodeRepository.build(
+                repository.getName(),
+                repository.getAllowedPackagesPattern(),
+                dependencies);
     }
 
     /**

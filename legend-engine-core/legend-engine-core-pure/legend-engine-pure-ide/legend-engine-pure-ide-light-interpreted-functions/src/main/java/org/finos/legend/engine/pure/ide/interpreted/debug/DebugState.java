@@ -33,6 +33,7 @@ import org.finos.legend.pure.m3.navigation.multiplicity.Multiplicity;
 import org.finos.legend.pure.m3.serialization.runtime.IncrementalCompiler;
 import org.finos.legend.pure.m3.serialization.runtime.Source;
 import org.finos.legend.pure.m4.coreinstance.CoreInstance;
+import org.finos.legend.pure.m4.coreinstance.SourceInformation;
 import org.finos.legend.pure.m4.transaction.framework.ThreadLocalTransactionContext;
 import org.finos.legend.pure.runtime.java.interpreted.VariableContext;
 
@@ -92,6 +93,28 @@ public class DebugState
         StringBuilder appendable = new StringBuilder();
         debugLocation.printPureStackTrace(appendable, "", this.debugSupport.getProcessorSupport());
         return "Variables: " + this.variablesTypeAndMultiplicity + "\n\n" + appendable;
+    }
+
+    public SourceInformation getCurrentSourceInformation()
+    {
+        return this.functionExpressionCallStack.isEmpty() ? null : this.functionExpressionCallStack.peek().getSourceInformation();
+    }
+
+    public String getCurrentFrameName()
+    {
+        if (this.functionExpressionCallStack.isEmpty())
+        {
+            return "Pure debug point";
+        }
+        String name = this.functionExpressionCallStack.peek().getName();
+        return (name == null || name.isEmpty()) ? "Pure debug point" : name;
+    }
+
+    public MutableList<Pair<String, String>> getVariableTypeAndMultiplicity()
+    {
+        return this.variables.collect(variable -> Tuples.pair(
+                variable.getOne(),
+                computeVariableTypeAndMultiplicity(this.debugSupport, variable.getTwo())));
     }
 
     public String evaluate(String command)

@@ -1,0 +1,28 @@
+function probeCoreJsonVariantRelation():Any[*]
+{
+  print('--- core/json/variant/relation probe ---', 1);
+
+  let today = meta::pure::functions::date::today()->toString();
+  print('today=' + $today, 1);
+
+  let json = '[{"score":42,"name":"Ada"},{"score":37,"name":"Grace"},{"score":10,"name":"Linus"}]';
+  print('json=' + $json, 1);
+
+  let age = '{"person":{"name":"Ada","age":42}}'
+    ->meta::pure::functions::variant::convert::fromJson()
+    ->meta::pure::functions::variant::navigation::get('person')
+    ->meta::pure::functions::variant::navigation::get('age')
+    ->meta::pure::functions::variant::convert::to(@Integer);
+  print('variant age=' + $age->toString(), 1);
+
+  let people = #TDS
+                 id,name,score
+                 1,Ada,42
+                 2,Grace,37
+                 3,Linus,10
+               #;
+  let winners = $people
+    ->meta::pure::functions::relation::filter(x: (id:Integer[0..1], name:String[0..1], score:Integer[0..1])[1]|$x.score > 30)
+    ->meta::pure::functions::relation::sort(~score->meta::pure::functions::relation::descending());
+  print('winners:\n' + $winners->toString(), 1);
+}

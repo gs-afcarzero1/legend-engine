@@ -524,6 +524,20 @@ public class LegendTextDocumentService implements TextDocumentService
         }
     }
 
+    Map<String, String> getOpenDocumentSourceSnapshot()
+    {
+        Map<String, String> snapshot = new java.util.TreeMap<>();
+        for (Map.Entry<String, String> entry : this.openDocuments.entrySet())
+        {
+            String uri = entry.getKey();
+            if (!uri.startsWith("pure://"))
+            {
+                snapshot.put(this.server.getUriMapper().toSourceId(uri), entry.getValue());
+            }
+        }
+        return snapshot;
+    }
+
     void shutdown()
     {
         this.debounceExecutor.shutdownNow();
