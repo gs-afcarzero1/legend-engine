@@ -465,6 +465,43 @@ function <<access.private>> meta::pure::graphFetch::mergePropertiesFromBaseSubTr
    $updatedSubTreeWithBaseClass->concatenate($subTreesWithSubTypes->map(st|^$st(subTrees = $st.subTrees->concatenate($subTreeWithBaseClass->cast(@PropertyGraphFetchTree).subTrees)->cast(@PropertyGraphFetchTree)->mergeSubTreesRecur())));
 }
 
+function <<access.private>> meta::pure::graphFetch::sourceClassesAreRelated(first:Class<Any>[1], second:Class<Any>[1]):Boolean[1]
+{
+   let firstPath = $first->elementToPath();
+   let secondPath = $second->elementToPath();
+   $firstPath == $secondPath
+      || $first->getAllTypeGeneralisations()->map(t | $t->elementToPath())->contains($secondPath)
+      || $second->getAllTypeGeneralisations()->map(t | $t->elementToPath())->contains($firstPath);
+}
+
+function <<access.private>> meta::pure::graphFetch::currentPathSourceClass(path:List<PropertyPathNode>[1], owner:Class<Any>[1]):Class<Any>[0..1]
+{
+   if($path.values->isEmpty(),
+      |$owner,
+      |$path.values->last()->toOne().property->functionReturnType().rawType->filter(t | $t->instanceOf(Class))->first()->cast(@Class<Any>)
+   );
+}
+
+function <<access.private>> meta::pure::graphFetch::currentPathsForChildSetImplementation(propertyPaths:ScanPropertiesState[*], owner:Class<Any>[1], childSetImplementation:PureInstanceSetImplementation[1]):List<PropertyPathNode>[*]
+{
+   // Alternate control-flow endpoints are useful for a child mapping only when
+   // their terminal class can supply that child's ~src type. Legacy current is
+   // deliberately monotonic and is never removed (operation mappings rely on it).
+   let legacyPaths = $propertyPaths.current->removeDuplicates();
+   let childSourceClass = $childSetImplementation.srcClass->filter(c | $c->instanceOf(Class))->cast(@Class<Any>);
+   let candidatePaths = $propertyPaths->map(p | $p->possibleCurrentPaths())->removeDuplicates();
+   let compatiblePaths = if($childSourceClass->isEmpty(),
+      |[],
+      |$candidatePaths->filter(path | $path->currentPathSourceClass($owner)->exists(c | $c->sourceClassesAreRelated($childSourceClass->toOne())))
+   );
+
+   // The legacy continuation paths are never filtered: operation mappings can
+   // intentionally enrich a child implementation from a differently typed
+   // path and navigate back to its source class. Compatible branch endpoints
+   // are strictly additive.
+   $legacyPaths->concatenate($compatiblePaths)->removeDuplicates();
+}
+
 function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeForProperty(srcNode:GraphFetchTree[1], mapping:Mapping[1], setImplementation: PureInstanceSetImplementation[1], tgtPgft:PropertyGraphFetchTree[1], extensions:meta::pure::extension::Extension[*], visitedFunctions:Map<String,ScanPropertiesState>[1]): Pair<GraphFetchTree, Map<String, ScanPropertiesState>>[1]
 {
    let srcNodeOwner = $srcNode->match([
@@ -533,7 +570,7 @@ function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeForPrope
                         class    = $setImplementation.srcClass->toOne()->cast(@Class<Any>),
                         property = $setImplementation->noMappingPassThruSourceProperty($requiredProperty->toOne())->toOne()
                      );
-                  ^ScanPropertiesState(current=list($path), result=list($path), visitedFunctions = $visitedFunctions);
+                  ^ScanPropertiesState(current=list($path), possibleCurrents=[], possibleCurrentsDefined=false, result=list($path), visitedFunctions = $visitedFunctions);
                   },
                   {|
                     assert($setImplementation->isNoMappingDefaultToEmpty($requiredProperty->toOne()) || $setImplementation->isPartOfMerge(), |'No mapping found for property \'' + $tgtPgft.property.name->toOne() + '\'');
@@ -545,7 +582,7 @@ function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeForPrope
               let result = $pms->fold({pm, prevRes | let result = $pm.transform.expressionSequence->at(0)->evaluateAndDeactivate()->scanProperties(noDebug(), ^ScanConfig(scanClasses=true, explodeMilestonedProperties=false), $prevRes->last()->getVisitedFunctions());
                                                      $prevRes->concatenate($result);
                                       },
-                                      [^ScanPropertiesState(current = emptyPath(), result = [], visitedFunctions = $visitedFunctions)]
+                                      [^ScanPropertiesState(current = emptyPath(), possibleCurrents = [], possibleCurrentsDefined = false, result = [], visitedFunctions = $visitedFunctions)]
                                     );
 
               $result->slice(1, $result->size());
@@ -658,7 +695,7 @@ function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeForPrope
                                   );
 
          let withNextSetImpl     = $childSetImpls->fold({setImpl, res 
-                                                        | let appendAtPaths = $propertyPaths.current->removeDuplicates();
+                                                        | let appendAtPaths = $propertyPaths->currentPathsForChildSetImplementation($owner, $setImpl);
                                                           if($appendAtPaths->isEmpty(),
                                                             | $res.first->enrichSourceTreeNode($mapping, $setImpl, $tgtPgft, $extensions, $res.second),
                                                             | $appendAtPaths->fold({path, res1 

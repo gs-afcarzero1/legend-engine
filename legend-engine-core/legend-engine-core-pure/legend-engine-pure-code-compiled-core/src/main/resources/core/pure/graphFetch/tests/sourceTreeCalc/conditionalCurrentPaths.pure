@@ -1,0 +1,1351 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+###Pure
+import meta::pure::graphFetch::*;
+import meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::*;
+
+Class meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::IdentitySource
+{
+  chooseChildren : Boolean[1];
+  chooseGrandChildren : Boolean[1];
+  name : String[1];
+  rank : Integer[1];
+  children : IdentitySource[*];
+  primary : IdentitySource[1];
+  secondary : IdentitySource[1];
+
+  nonEmptyChildren()
+  {
+    $this.children->filter(child | $child.name->isNotEmpty());
+  }: IdentitySource[*];
+
+  descendantNames()
+  {
+    $this.children.name;
+  }: String[*];
+}
+
+Class meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::IdentityTarget
+{
+  items : IdentityItem[*];
+  otherItems : IdentityItem[*];
+  primaryItems : IdentityItem[*];
+  secondaryItems : IdentityItem[*];
+  names : String[*];
+  hasRanked : Boolean[1];
+}
+
+Class meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::IdentityItem
+{
+  name : String[1];
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource(source:IdentitySource[1]):IdentitySource[*]
+{
+  if($source.chooseChildren, |$source.children, |$source);
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectNestedIdentityEndpoints(source:IdentitySource[1]):IdentitySource[*]
+{
+  if($source.chooseChildren,
+    |if($source.chooseGrandChildren, |$source.children.children, |$source.children),
+    |$source
+  );
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::delegateIdentitySelection(source:IdentitySource[1]):IdentitySource[*]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource();
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::returnNoIdentitySource(source:IdentitySource[1]):IdentitySource[*]
+{
+  [];
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectOnlyEmpty(source:IdentitySource[1]):IdentitySource[*]
+{
+  if($source.chooseChildren,
+    |$source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::returnNoIdentitySource(),
+    |$source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::returnNoIdentitySource()
+  );
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::identityMany(sources:IdentitySource[*]):IdentitySource[*]
+{
+  $sources;
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThenNavigate(source:IdentitySource[1]):IdentitySource[*]
+{
+  if($source.chooseChildren, |$source.children, |$source).children;
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughFunctionArgument(source:IdentitySource[1]):IdentitySource[*]
+{
+  if($source.chooseChildren, |$source.children, |$source)
+    ->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::identityMany();
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughLet(source:IdentitySource[1]):IdentitySource[*]
+{
+  let selected = $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource();
+  $selected;
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughFilter(source:IdentitySource[1]):IdentitySource[*]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource()
+    ->filter(item | $item.name->isNotEmpty());
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughMap(source:IdentitySource[1]):IdentitySource[*]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource()
+    ->map(item | $item.children);
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughFirst(source:IdentitySource[1]):IdentitySource[0..1]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource()->first();
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectNavigationOrEmptyWithMatch(source:IdentitySource[1]):IdentitySource[*]
+{
+  $source->match([
+    item:IdentitySource[1] | $item.children,
+    other:Any[*] | []
+  ]);
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughSortBy(source:IdentitySource[1]):IdentitySource[*]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource()
+    ->sortBy(item | $item.name);
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughComparatorSort(source:IdentitySource[1]):IdentitySource[*]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource()
+    ->sort({left, right | $left.name->compare($right.name)});
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughNestedLetNavigation(source:IdentitySource[1]):IdentitySource[*]
+{
+  let selected = $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource();
+  let navigated = $selected.children;
+  $navigated;
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughQualifiedProperty(source:IdentitySource[1]):IdentitySource[*]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource().nonEmptyChildren();
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughNestedMatch(source:IdentitySource[1]):IdentitySource[*]
+{
+  $source->match([
+    item:IdentitySource[1] | if($item.chooseChildren, |$item.children.children, |$item),
+    other:Any[*] | []
+  ]);
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectNamesThroughProperty(source:IdentitySource[1]):String[*]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource().name;
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectNamesThroughMap(source:IdentitySource[1]):String[*]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource()
+    ->map(item | $item.name);
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughRankFilter(source:IdentitySource[1]):IdentitySource[*]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource()
+    ->filter(item | $item.rank > 0);
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughRankSortBy(source:IdentitySource[1]):IdentitySource[*]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource()
+    ->sortBy(item | $item.rank);
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughRankComparator(source:IdentitySource[1]):IdentitySource[*]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource()
+    ->sort({left, right | $left.rank - $right.rank});
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::hasRankedSelection(source:IdentitySource[1]):Boolean[1]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource()
+    ->exists(item | $item.rank > 0);
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectNamesThroughQualifiedProperty(source:IdentitySource[1]):String[*]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource().descendantNames();
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughConcatenate(source:IdentitySource[1]):IdentitySource[*]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource()
+    ->concatenate([$source.secondary]);
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughUnion(source:IdentitySource[1]):IdentitySource[*]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource()
+    ->union([$source.secondary]);
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughAdd(source:IdentitySource[1]):IdentitySource[*]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource()
+    ->add($source.secondary);
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughLiteralCollection(source:IdentitySource[1]):IdentitySource[*]
+{
+  [if($source.chooseChildren, |$source.primary, |$source), $source.secondary];
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughConcatenateWithRoot(source:IdentitySource[1]):IdentitySource[*]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource()
+    ->concatenate([$source]);
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughConcatenateWithNil(source:IdentitySource[1]):IdentitySource[*]
+{
+  if($source.chooseChildren, |$source.children, |[])
+    ->concatenate([$source.secondary]);
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughTwoConditionalCollections(source:IdentitySource[1]):IdentitySource[*]
+{
+  $source->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource()
+    ->concatenate(if($source.chooseGrandChildren, |$source.children.children, |[$source.secondary]));
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testIdentityEndpointIsRetained():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, children {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, identityMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testNamedFunctionEndpointsAndCacheAreRetained():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}, otherItems {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, children {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, identityNamedMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testNestedConditionalRetainsEveryDepth():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, chooseGrandChildren, name, children {name, children {name}}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, identityNestedMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testMatchRetainsIdentityAndNavigationEndpoints():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, children {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, identityMatchMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testIdentityEndpointIsRetainedWhenBranchOrderIsReversed():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, children {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, identityReversedMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testEmptyElseBranchIsNotIdentity():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, children {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, emptyElseMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testEmptyThenBranchIsNotIdentity():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, children {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, emptyThenMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testNestedEmptyBranchDoesNotBecomeIdentity():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, chooseGrandChildren, children {name, children {name}}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, nestedEmptyMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testNamedFunctionCacheResolvesEveryCallSitePrefix():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {primaryItems {name}, secondaryItems {name}}}#;
+  let expectedSourceTree = #{IdentitySource {primary {chooseChildren, name, children {name}}, secondary {chooseChildren, name, children {name}}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, identityPrefixedCacheMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testConditionalEndpointsSurviveDelegatingFunction():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, children {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, identityDelegatingMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testNamedEmptyFunctionDoesNotBecomeIdentity():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, children {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, namedEmptyMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testNavigationAfterConditionalTransformsEveryEndpoint():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, children {name, children {name}}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, navigateAfterConditionalMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testConditionalEndpointsSurviveFunctionArgument():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, children {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalFunctionArgumentMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testConditionalEndpointsSurviveLetBinding():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, children {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalLetMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testConditionalEndpointsSurviveFilter():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, children {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalFilterMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testConditionalEndpointsAreTransformedInsideMap():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, children {name, children {name}}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalMapMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testConditionalEndpointsSurviveTransparentCollectionFunction():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, children {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalFirstMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testMatchEmptyBranchIsNotIdentity():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {children {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, matchEmptyMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testConditionalEndpointsSurviveSortBy():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, children {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalSortByMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testConditionalEndpointsSurviveComparatorSort():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, children {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalComparatorSortMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testConditionalEndpointsSurviveNestedLetNavigation():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, children {name, children {name}}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalNestedLetNavigationMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testConditionalEndpointsSurviveQualifiedProperty():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = 'IdentitySource [requires: nonEmptyChildren]\n' +
+                           '(\n' +
+                           '  children [requires: nonEmptyChildren]\n' +
+                           '  (\n' +
+                           '    children\n' +
+                           '    (\n' +
+                           '      name\n' +
+                           '    )\n' +
+                           '    name\n' +
+                           '  )\n' +
+                           '  chooseChildren\n' +
+                           ')';
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalQualifiedPropertyMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree, $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testNestedMatchIfAndEmptyRetainOnlyRealEndpoints():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, children {children {name}}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, nestedMatchMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testAllEmptyBranchesPreserveLegacyRootContinuation():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, allEmptyMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testScalarPropertyAfterConditionalIncludesEveryBranchDependency():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {names}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, children {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalScalarPropertyMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testScalarMapAfterConditionalIncludesEveryBranchDependency():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {names}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, children {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalScalarMapMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testFilterPredicateIncludesEveryBranchDependency():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, rank, children {name, rank}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalRankFilterMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testSortKeyIncludesEveryBranchDependency():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, rank, children {name, rank}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalRankSortByMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testComparatorIncludesEveryBranchDependency():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, rank, children {name, rank}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalRankComparatorMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testExistsPredicateIncludesEveryBranchDependency():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {hasRanked}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, rank, children {rank}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalRankExistsMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testScalarQualifiedPropertyIncludesEveryBranchDependency():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {names}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalScalarQualifiedMapping, meta::pure::extension::defaultExtensions());
+  let expectedSourceTree = 'IdentitySource [requires: descendantNames]\n' +
+                           '(\n' +
+                           '  children [requires: descendantNames]\n' +
+                           '  (\n' +
+                           '    children\n' +
+                           '    (\n' +
+                           '      name\n' +
+                           '    )\n' +
+                           '    name\n' +
+                           '  )\n' +
+                           '  chooseChildren\n' +
+                           ')';
+  assertEquals($expectedSourceTree, $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testConcatenateRetainsConditionalAndSecondCollectionEndpoints():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, children {name}, secondary {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalConcatenateMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testUnionRetainsConditionalAndSecondCollectionEndpoints():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, children {name}, secondary {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalUnionMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testAddRetainsConditionalAndAddedEndpoint():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, children {name}, secondary {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalAddMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testLiteralCollectionRetainsEveryNestedEndpoint():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, primary {name}, secondary {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalLiteralCollectionMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testConcatenateRetainsRootOperandAsAnEndpoint():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, name, children {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalConcatenateRootMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testConcatenateDoesNotTurnNilOperandIntoRoot():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, children {name}, secondary {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, conditionalConcatenateNilMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testConcatenateUnionsEndpointsFromBothConditionalOperands():Boolean[1]
+{
+  let targetTree = #{IdentityTarget {items {name}}}#;
+  let expectedSourceTree = #{IdentitySource {chooseChildren, chooseGrandChildren, name, children {name, children {name}}, secondary {name}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, twoConditionalCollectionsMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+Class meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::CompatibilityBase
+{
+  baseName : String[1];
+}
+
+Class meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::CompatibilitySub extends CompatibilityBase
+{
+  subName : String[1];
+}
+
+Class meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::CompatibilityRoot
+{
+  chooseSub : Boolean[1];
+  base : CompatibilityBase[1];
+  sub : CompatibilitySub[1];
+}
+
+Class meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::CompatibilityTarget
+{
+  baseItems : CompatibilityBaseItem[*];
+  subItems : CompatibilitySubItem[*];
+}
+
+Class meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::CompatibilityBaseItem
+{
+  baseName : String[1];
+}
+
+Class meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::CompatibilitySubItem
+{
+  baseName : String[1];
+  subName : String[1];
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testSubtypeTerminalIsCompatibleWithBaseChildSource():Boolean[1]
+{
+  let targetTree = #{CompatibilityTarget {baseItems {baseName}}}#;
+  let expectedSourceTree = #{CompatibilityRoot {chooseSub, base {baseName}, sub {baseName}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, compatibilityMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testBaseTerminalIsCompatibleWithSubtypeChildSource():Boolean[1]
+{
+  let targetTree = #{CompatibilityTarget {subItems {baseName, subName}}}#;
+  let expectedSourceTree = #{CompatibilityRoot {chooseSub, base {baseName}, base->subType(@CompatibilitySub) {baseName, subName}, sub {baseName, subName}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, compatibilityMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+Class meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::NavigationRoot
+{
+  chooseSecondary : Boolean[1];
+  chooseNested : Boolean[1];
+  container : NavigationContainer[1];
+  secondary : NavigationContainer[1];
+  other : NavigationOther[1];
+}
+
+Class meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::NavigationContainer
+{
+  containerField : String[1];
+  nested : NavigationContainer[*];
+}
+
+Class meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::NavigationOther
+{
+  containerField : String[1];
+}
+
+Class meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::NavigationTarget
+{
+  child : NavigationTargetChild[*];
+}
+
+Class meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::NavigationTargetChild
+{
+  someProp : String[1];
+}
+
+function meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::pickContainer(source:NavigationRoot[1]):NavigationContainer[1]
+{
+  $source.container;
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectDeepNavigationEndpoints(source:NavigationRoot[1]):NavigationContainer[*]
+{
+  if($source.chooseSecondary,
+    |$source.secondary.nested,
+    |if($source.chooseNested, |$source.container.nested, |$source)->cast(@NavigationContainer)
+  );
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectCompatibleSibling(source:NavigationRoot[1]):NavigationContainer[*]
+{
+  if($source.chooseSecondary,
+    |$source.container,
+    |$source.other
+  )->filter(value | $value->instanceOf(NavigationContainer))->map(value | $value->cast(@NavigationContainer));
+}
+
+function meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectCompatibleSiblingReversed(source:NavigationRoot[1]):NavigationContainer[*]
+{
+  if($source.chooseSecondary,
+    |$source.other,
+    |$source.container
+  )->filter(value | $value->instanceOf(NavigationContainer))->map(value | $value->cast(@NavigationContainer));
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testNavigationEndpointRemainsCurrent():Boolean[1]
+{
+  let targetTree = #{NavigationTarget {child {someProp}}}#;
+  let expectedSourceTree = #{NavigationRoot {container {containerField}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, navigationMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testDeepNavigationsAreRetainedAndIncompatibleRootIsExcluded():Boolean[1]
+{
+  let targetTree = #{NavigationTarget {child {someProp}}}#;
+  let expectedSourceTree = #{NavigationRoot {chooseSecondary, chooseNested, container {nested {containerField}}, secondary {nested {containerField}}}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, deepNavigationMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testIncompatibleSiblingIsScannedButNotEnrichedWithChildProperties():Boolean[1]
+{
+  let targetTree = #{NavigationTarget {child {someProp}}}#;
+  let expectedSourceTree = #{NavigationRoot {chooseSecondary, container {containerField}, other}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, incompatibleSiblingMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::testIncompatibleFirstSiblingIsNotPreservedAsConditionalCurrent():Boolean[1]
+{
+  let targetTree = #{NavigationTarget {child {someProp}}}#;
+  let expectedSourceTree = #{NavigationRoot {chooseSecondary, container {containerField}, other}}#;
+  let actualSourceTree = calculateSourceTree($targetTree, incompatibleFirstSiblingMapping, meta::pure::extension::defaultExtensions());
+  assertEquals($expectedSourceTree->sortTree()->treeToString(), $actualSourceTree->sortTree()->treeToString());
+}
+
+###Mapping
+import meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::*;
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::identityMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[identityItem]: if($src.chooseChildren, |$src.children, |$src)
+  }
+
+  IdentityItem[identityItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::identityNamedMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[identityItemNamed]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource(),
+    otherItems[identityItemNamed]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource()
+  }
+
+  IdentityItem[identityItemNamed]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::identityNestedMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[identityItemNested]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectNestedIdentityEndpoints()
+  }
+
+  IdentityItem[identityItemNested]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::identityMatchMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[identityItemMatch]: $src->match([
+      i:IdentitySource[1] | if($i.chooseChildren, |$i.children, |$i),
+      a:Any[*] | $src
+    ])
+  }
+
+  IdentityItem[identityItemMatch]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::identityReversedMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[identityItemReversed]: if($src.chooseChildren, |$src, |$src.children)
+  }
+
+  IdentityItem[identityItemReversed]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::emptyElseMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[emptyElseItem]: if($src.chooseChildren, |$src.children, |[])
+  }
+
+  IdentityItem[emptyElseItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::emptyThenMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[emptyThenItem]: if($src.chooseChildren, |[], |$src.children)
+  }
+
+  IdentityItem[emptyThenItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::nestedEmptyMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[nestedEmptyItem]: if($src.chooseChildren, |$src.children, |if($src.chooseGrandChildren, |$src.children.children, |[]))
+  }
+
+  IdentityItem[nestedEmptyItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::identityPrefixedCacheMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    primaryItems[identityPrefixedItem]: $src.primary->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource(),
+    secondaryItems[identityPrefixedItem]: $src.secondary->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectChildrenOrSource()
+  }
+
+  IdentityItem[identityPrefixedItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::identityDelegatingMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[identityDelegatingItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::delegateIdentitySelection()
+  }
+
+  IdentityItem[identityDelegatingItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::namedEmptyMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[namedEmptyItem]: if($src.chooseChildren,
+      |$src.children,
+      |$src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::returnNoIdentitySource()
+    )
+  }
+
+  IdentityItem[namedEmptyItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::navigateAfterConditionalMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[navigateAfterConditionalItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThenNavigate()
+  }
+
+  IdentityItem[navigateAfterConditionalItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalFunctionArgumentMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[conditionalFunctionArgumentItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughFunctionArgument()
+  }
+
+  IdentityItem[conditionalFunctionArgumentItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalLetMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[conditionalLetItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughLet()
+  }
+
+  IdentityItem[conditionalLetItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalFilterMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[conditionalFilterItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughFilter()
+  }
+
+  IdentityItem[conditionalFilterItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalMapMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[conditionalMapItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughMap()
+  }
+
+  IdentityItem[conditionalMapItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalFirstMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[conditionalFirstItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughFirst()
+  }
+
+  IdentityItem[conditionalFirstItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::matchEmptyMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[matchEmptyItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectNavigationOrEmptyWithMatch()
+  }
+
+  IdentityItem[matchEmptyItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalSortByMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[conditionalSortByItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughSortBy()
+  }
+
+  IdentityItem[conditionalSortByItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalComparatorSortMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[conditionalComparatorSortItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughComparatorSort()
+  }
+
+  IdentityItem[conditionalComparatorSortItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalNestedLetNavigationMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[conditionalNestedLetNavigationItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughNestedLetNavigation()
+  }
+
+  IdentityItem[conditionalNestedLetNavigationItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalQualifiedPropertyMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[conditionalQualifiedPropertyItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughQualifiedProperty()
+  }
+
+  IdentityItem[conditionalQualifiedPropertyItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::nestedMatchMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[nestedMatchItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughNestedMatch()
+  }
+
+  IdentityItem[nestedMatchItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::allEmptyMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[allEmptyItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectOnlyEmpty()
+  }
+
+  IdentityItem[allEmptyItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalScalarPropertyMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    names: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectNamesThroughProperty()
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalScalarMapMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    names: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectNamesThroughMap()
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalRankFilterMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[conditionalRankFilterItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughRankFilter()
+  }
+
+  IdentityItem[conditionalRankFilterItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalRankSortByMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[conditionalRankSortByItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughRankSortBy()
+  }
+
+  IdentityItem[conditionalRankSortByItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalRankComparatorMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[conditionalRankComparatorItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughRankComparator()
+  }
+
+  IdentityItem[conditionalRankComparatorItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalRankExistsMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    hasRanked: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::hasRankedSelection()
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalScalarQualifiedMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    names: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectNamesThroughQualifiedProperty()
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalConcatenateMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[conditionalConcatenateItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughConcatenate()
+  }
+
+  IdentityItem[conditionalConcatenateItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalUnionMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[conditionalUnionItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughUnion()
+  }
+
+  IdentityItem[conditionalUnionItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalAddMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[conditionalAddItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughAdd()
+  }
+
+  IdentityItem[conditionalAddItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalLiteralCollectionMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[conditionalLiteralCollectionItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughLiteralCollection()
+  }
+
+  IdentityItem[conditionalLiteralCollectionItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalConcatenateRootMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[conditionalConcatenateRootItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughConcatenateWithRoot()
+  }
+
+  IdentityItem[conditionalConcatenateRootItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::conditionalConcatenateNilMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[conditionalConcatenateNilItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughConcatenateWithNil()
+  }
+
+  IdentityItem[conditionalConcatenateNilItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::twoConditionalCollectionsMapping
+(
+  *IdentityTarget: Pure
+  {
+    ~src IdentitySource
+    items[twoConditionalCollectionsItem]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectThroughTwoConditionalCollections()
+  }
+
+  IdentityItem[twoConditionalCollectionsItem]: Pure
+  {
+    ~src IdentitySource
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::compatibilityMapping
+(
+  *CompatibilityTarget: Pure
+  {
+    ~src CompatibilityRoot
+    baseItems[compatibilityBaseItem]: if($src.chooseSub, |$src.sub, |$src.base),
+    subItems[compatibilitySubItem]: if($src.chooseSub, |$src.sub, |$src.base->cast(@CompatibilitySub))
+  }
+
+  CompatibilityBaseItem[compatibilityBaseItem]: Pure
+  {
+    ~src CompatibilityBase
+    baseName: $src.baseName
+  }
+
+  CompatibilitySubItem[compatibilitySubItem]: Pure
+  {
+    ~src CompatibilitySub
+    baseName: $src.baseName,
+    subName: $src.subName
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::navigationMapping
+(
+  *NavigationTarget[navigationRoot]: Pure
+  {
+    ~src NavigationRoot
+    child[navigationChild]: if($src.container->isNotEmpty(), |$src->pickContainer(), |$src)->cast(@NavigationContainer)
+  }
+
+  NavigationTargetChild[navigationChild]: Pure
+  {
+    ~src NavigationContainer
+    someProp: $src.containerField
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::deepNavigationMapping
+(
+  *NavigationTarget[navigationDeepRoot]: Pure
+  {
+    ~src NavigationRoot
+    child[navigationDeepChild]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectDeepNavigationEndpoints()
+  }
+
+  NavigationTargetChild[navigationDeepChild]: Pure
+  {
+    ~src NavigationContainer
+    someProp: $src.containerField
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::incompatibleSiblingMapping
+(
+  *NavigationTarget[navigationSiblingRoot]: Pure
+  {
+    ~src NavigationRoot
+    child[navigationSiblingChild]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectCompatibleSibling()
+  }
+
+  NavigationTargetChild[navigationSiblingChild]: Pure
+  {
+    ~src NavigationContainer
+    someProp: $src.containerField
+  }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::sourceTreeConditionalCurrents::incompatibleFirstSiblingMapping
+(
+  *NavigationTarget[navigationFirstSiblingRoot]: Pure
+  {
+    ~src NavigationRoot
+    child[navigationFirstSiblingChild]: $src->meta::pure::lineage::scanProperties::test::sourceTreeConditionalCurrents::selectCompatibleSiblingReversed()
+  }
+
+  NavigationTargetChild[navigationFirstSiblingChild]: Pure
+  {
+    ~src NavigationContainer
+    someProp: $src.containerField
+  }
+)

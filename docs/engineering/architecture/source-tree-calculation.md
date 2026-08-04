@@ -125,7 +125,349 @@ handling.
 | `SubTypeGraphFetchTree` | legend-pure | A subtype branch attached to either a root or a PGFT. Carries a `subTypeClass` and its own subtree. Renders as `->SubType(ClassName) { ... }`. |
 | `PropertyPathTree` | core/pure/lineage/scanProperties.pure | An intermediate, ordered tree of "what the mapping transform navigates through." Used internally; converted to a `RootGraphFetchTree` at the end. Carries a `value` (which is one of: the string `'root'`, a `Class`, or a `PropertyPathNode`). |
 | `PropertyPathNode` | scanProperties.pure | A single node in a `PropertyPathTree`. Carries the property accessed and the class that owns the property at that point in the navigation. |
-| `ScanPropertiesState` | scanProperties.pure | The result of `scanProperties` over a value-specification. Carries `current` (where the scan ended up — used as an append-at path) and `result` (the cumulative property paths discovered). |
+| `ScanPropertiesState` | scanProperties.pure | The result of `scanProperties` over a value-specification. Carries `current` (the legacy continuation path), `possibleCurrents` (all terminal paths produced by control flow), `possibleCurrentsDefined` (whether the alternate set is meaningful, even when empty), `result` (all dependencies found), and the named-function cache. |
+
+### 3.1 Conditional terminal paths: `current` versus `possibleCurrents`
+
+`current` predates control-flow-aware M2M enrichment. It is deliberately a
+single `List<PropertyPathNode>` because most scanner consumers need one path at
+which to continue ordinary expression scanning. An `if`, however, may return
+model values reached through more than one source path:
+
+```pure
+Class Src
+{
+   useChildren : Boolean[1];
+   name        : String[1];
+   children    : Src[*];
+}
+
+Class Tgt      { items : TgtItem[*]; }
+Class TgtItem  { name : String[1]; }
+
+Mapping Example
+(
+   *Tgt : Pure
+   {
+      ~src Src
+      items[item] : if($src.useChildren, |$src.children, |$src)
+   }
+
+   TgtItem[item] : Pure
+   {
+      ~src Src
+      name : $src.name
+   }
+)
+```
+
+There are two valid terminal source paths for `items`:
+
+| Runtime branch | Terminal property path | Where `TgtItem.name` must be enriched |
+|---|---|---|
+| `useChildren == true` | `[children]` | `Src.children.name` |
+| `useChildren == false` | `[]` (the identity/root path) | `Src.name` |
+
+The old `if` scanner calculated `current` as follows:
+
+```pure
+$thenPath.current
+   ->concatenate($elsePath.current)
+   ->removeEmptyPaths()
+   ->first()
+   ->orElseEmptyPath()
+```
+
+The empty path is not “no information” in this context; it means “the current
+owner itself”. Removing it chooses `[children]` and loses the identity branch.
+The child mapping is then enriched only under `children`, so the source graph
+does not request root `name`. Generated Java still calls `src.getName()` when
+the identity branch runs, but the generated source interface has no root
+`name` getter. The eventual symptom is therefore a Java compilation failure,
+even though the information was lost earlier during source-tree calculation.
+
+Changing `current` itself to prefer or retain root is not safe. Consider the
+symmetric navigation mapping:
+
+```pure
+Class Root      { container : Container[1]; }
+Class Container { value : String[1]; }
+
+child[childMapping] :
+   if($src.container->isNotEmpty(), |$src.container, |$src)
+
+TgtChild[childMapping] : Pure
+{
+   ~src Container
+   value : $src.value
+}
+```
+
+Here the child mapping is sourced by `Container`, so its properties belong
+under `Root.container`. Attaching them at the identity path would ask `Root`
+for `Container.value`. “Always keep root” and “always keep navigation” are both
+wrong; selection must account for the child set implementation's `~src` type.
+
+The scanner therefore keeps the legacy channel and a deliberately separate
+alternate-terminal channel:
+
+- `current` is calculated exactly as before. This preserves continuation,
+  qualified-property, operation-set, relational, and intermediate-object
+  behavior for every existing scanner consumer.
+- `possibleCurrents` contains every semantically possible model-valued endpoint
+  when alternate metadata is defined. For `if`, it is the union of the
+  endpoints from both lambdas. For `match`, it is the union from every case.
+  Nested branches flatten naturally because each branch exposes its own
+  terminal set.
+- `possibleCurrentsDefined` distinguishes an absent alternate set from a known
+  empty set. This Boolean is essential because both `$src` and `[]` have an
+  empty legacy property path: `$src` means the source owner is a real endpoint,
+  while `[]` means there is no model endpoint at all. A list alone cannot encode
+  that distinction.
+- `possibleCurrentPaths()` is the normalization boundary. It returns
+  `possibleCurrents` when `possibleCurrentsDefined` is true and otherwise falls
+  back to the singleton legacy `current`. An outer control-flow construct can
+  therefore combine ordinary expressions, nested branches, root identity, and
+  `Nil` without guessing why a path is empty.
+
+The states have the following meaning. These are invariants, not heuristic
+interpretations:
+
+| Expression shape | `current` | `possibleCurrentsDefined` | `possibleCurrents` | Normalized endpoints |
+|---|---|---:|---|---|
+| ordinary `$src.children` | `[children]` | false | `[]` | `[children]` |
+| root identity `$src` | `[]` | false | `[]` | `[root]` (the empty property path) |
+| literal `[]` / compiled `Nil` | `[]` | true | `[]` | no endpoints |
+| `if(c, \|$src.children, \|$src)` | legacy `[children]` | true | `[children]`, `[root]` | both endpoints |
+| `if(c, \|$src.children, \|[])` | legacy `[children]` | true | `[children]` | navigation only |
+
+The old scanner collapsed the last three rows to the same empty-path shape at
+different points. That is why merely preserving every empty path would fix the
+original identity case but incorrectly turn a `Nil` branch into a root branch.
+
+#### Propagation algebra
+
+Alternate endpoints are useful only if they survive every expression boundary
+between the control-flow expression and the child mapping. The implementation
+uses a small, explicit propagation algebra:
+
+| Boundary | Rule |
+|---|---|
+| `if` / `match` | Union each branch/case's normalized endpoints; preserve the old single `current` selection. |
+| property access | Append the property independently to every alternate endpoint; retain legacy property processing for `current` and `result`. |
+| qualified property | Evaluate the qualified property at each alternate endpoint and preserve its normal dependency/requirement calculation. |
+| `let` and variable read | Store and retrieve the full `ScanPropertiesState`, not only `current`. The public deprecated scanner APIs still reject caller-supplied variables and are unchanged. |
+| lambda parameter | Bind the full state so a predicate, mapper, or nested lambda sees the same endpoint set as its input. |
+| named function | Cache the body once with dummy parameter nodes, then expand each dummy-relative terminal and result path over every actual call-site endpoint. |
+| cache hit at another prefix | Resolve the same cached dummy path independently against the new prefix; no absolute call-site path is cached. |
+| collection-preserving function (`filter`, `sort`, `sortBy`, `removeDuplicates`, etc.) | Its value endpoints remain the input collection's endpoints; paths read by key/comparator/predicate lambdas are dependencies, not replacement endpoints. |
+| value-transforming function (`map`) | Its endpoints are those returned by the mapper lambda. |
+| transparent selector (`first`, `last`, `slice`, `cast`, `subType`, etc.) | Return the scanned input state, including alternate metadata. |
+| binary collection combination (`add`, `concatenate`, `union`) | Preserve the old first non-empty `current`, merge both dependency sets, and—only when either operand already has explicit alternate metadata—union both operands' normalized endpoint sets. |
+
+This full-state propagation was not speculative widening. Adversarial tests
+demonstrated four concrete losses after the first conditional-only prototype:
+
+1. `[]` was treated as root identity because both had an empty property path;
+2. alternate endpoints disappeared when passed through a named function or a
+   `let` binding;
+3. a property accessed after a conditional was appended only to legacy
+   `current`, not to every branch endpoint;
+4. `add`, `concatenate`, and `union` discarded alternate endpoints by
+   constructing a new state from only the first non-empty legacy `current`.
+
+Each failure was reproduced as an exact source-tree assertion before its
+corresponding propagation rule was added.
+
+The binary-combination rule is intentionally gated. If neither operand has
+explicit alternate metadata, the old three-argument state constructor is
+semantically preserved: the first non-empty `current` remains the continuation
+and no alternate set is created. If either operand is branching, both operands
+are normalized before union. An ordinary second operand therefore contributes
+its legacy endpoint (including the empty path when that operand is `$src`),
+while an explicitly empty `Nil` operand contributes no endpoint. The
+dependency merge and visited-function sequencing are unchanged.
+
+This boundary had its own controlled pre-fix experiment. Four valid fixtures
+were added together: conditional values through `concatenate`, `union`, and
+`add`, plus a literal collection carrying the same kinds of endpoints. Before
+the binary rule, the full suite reported exactly three failures—the three
+named combinators—while the literal collection passed. All three failures had
+the same shape: the branch-condition and sibling-navigation dependencies were
+present, but child properties were missing at root and at the sibling terminal.
+That isolates the defect to the binary-combination branch rather than the
+general `InstanceValue` scanner.
+
+There is an important distinction between propagating an endpoint and recording
+a dependency. `possibleCurrents` answers “where would a later model-valued
+operation continue?”; `result` answers “which source properties must be fetched
+for the expression already evaluated?” For
+`if(c, |$src.children, |$src).name`, propagating `[children]` and root is not
+enough: `[children,name]` and `[name]` must also be inserted into `result`.
+The final adversarial expansion isolated this with scalar mappings and with
+predicate/sort properties different from the child mapping's properties. It
+found six cases where child placement was correct but root scalar dependencies
+were missing. Property and qualified-property scanning now add the accessed
+path for every explicitly defined endpoint; ordinary states still execute the
+original single-path result logic.
+
+Named-function caching deserves special attention. The cache key and recursion
+guard remain unchanged: the function's element path. What changes is the cached
+value, which already was a `ScanPropertiesState`. The body's `current`,
+`possibleCurrents`, and `result` may begin with a `DummyPropertyPathNode(id)`.
+At a call site, resolution performs a Cartesian prefix expansion only for paths
+whose first node is that dummy:
+
+```text
+cached body path:        dummy(0) -> children
+actual argument paths:   root.primary
+                         root.primary -> children
+
+resolved paths:          root.primary -> children
+                         root.primary -> children -> children
+```
+
+The cached entry never retains `root.primary` or any other caller-specific
+prefix. This is why invoking the same function later at `root.secondary` cannot
+leak the first call site's source path. Cache write, cache hit, delegation, two
+distinct prefixes, and conditional function arguments all have focused tests.
+
+#### M2M-only endpoint selection
+
+The additional paths are consumed only in
+`enrichSourceTreeNodeForProperty`, at the existing point where a child set
+implementation is recursively enriched. For each candidate path, the engine
+infers its terminal source class:
+
+```text
+empty path       -> current source-tree owner
+non-empty path   -> raw return type of the last property in the path
+primitive/other  -> unclassifiable (not added)
+```
+
+In code, `currentPathsForChildSetImplementation` performs exactly four steps:
+
+```text
+legacy       = distinct(propertyScan.current)
+candidates   = distinct(propertyScan.possibleCurrentPaths())
+compatible   = candidates whose terminal class is related to child.srcClass
+appendPaths  = distinct(legacy + compatible)
+```
+
+The helper is called only for `PureInstanceSetImplementation` children in the
+M2M graph-enrichment path. `scanProperties` remains a general lineage utility,
+but no relational, operation, or Java-generation consumer has been changed to
+select alternate terminals directly.
+
+It then compares that class with the child `PureInstanceSetImplementation`'s
+`srcClass`. Equality, subtype, and supertype relationships are accepted. Class
+comparison uses element paths plus generalizations rather than object identity,
+because lazy Pure evaluation can materialize distinct objects representing the
+same class.
+
+Both inheritance directions are intentional. If a path is statically `Sub`
+and the child is sourced by `Base`, inherited properties are valid at that
+path. Conversely, a path statically declared `Base` may feed a child sourced by
+`Sub` when the mapping performs the corresponding runtime cast; the subtype
+tree must then be retained so subtype-only getters are generated. Unrelated
+siblings are rejected as alternate enrichment points, although the property
+used to evaluate the branch remains in the dependency tree.
+
+The crucial safety invariant is monotonicity:
+
+```text
+paths used after the change
+   = legacy current paths
+   + type-compatible conditional terminal paths
+```
+
+Legacy paths are **never filtered or replaced**. This matters for operation
+mappings: an operation branch can intentionally start enrichment at a path
+whose terminal type differs from its `~src` and navigate back through an
+association. An earlier selector that replaced legacy paths with compatible
+paths broke `unionMappingFromSourceRootandSourceProperty` by dropping the
+`AssetPutSchedule.BO -> Asset` back-navigation. Making conditional paths
+strictly additive restores that behavior while retaining the missing identity
+endpoint.
+
+The all-empty case intentionally preserves the same legacy fallback. If every
+branch is a typed function returning `[]`, the alternate endpoint set is known
+to be empty, but legacy `current` is still the empty/root path. Keeping it is
+part of the monotonicity contract: this change does not attempt to eliminate
+historical over-fetching when a child mapping is unreachable at runtime. The
+important distinction is that a single empty branch is not invented as an
+additional root endpoint beside a real navigation branch.
+
+Applied to the two examples:
+
+| Example | Legacy `current` | Additional candidates | Child `~src` | Paths used |
+|---|---|---|---|---|
+| identity or children | `[children]` | `[children]`, `[]` | `Src` | `[children]`, `[]` |
+| container or unrelated root | `[container]` | `[container]`, `[]` | `Container` | `[container]` only |
+
+This boundary also isolates relational and new-instance logic. All existing
+owner reachability, `buildPropertyPathUptoOwner`, subtype-tree, operation-set,
+and pass-through handling runs unchanged. Relational mappings do not consume
+the metadata directly; M2M-over-relational ModelChain plans exercise the same
+unchanged upstream source tree after the M2M endpoint is chosen.
+
+In particular, the recent intermediate/new-instance work around owner
+reachability is not reordered or reimplemented. Endpoint selection happens at
+the old `appendAtPaths` seam; once a path is selected, the existing enrichment
+algorithm receives the same owner, set implementation, target PGFT, extension
+set, and visited-function map as before.
+
+#### Java list-cast boundary
+
+A grammar with unrelated branch types may be valid Pure but independently
+generate Java shaped as `List<Object>` and then attempt to cast the entire list
+to `List<Container>`. Java generic lists are invariant. That problem is not a
+source-tree endpoint problem and is not addressed here. The executable
+regression grammar expresses the same guarded, unreachable root branch using
+an element-wise cast:
+
+```pure
+$src->map(root | $root->cast(@Container))
+```
+
+This produces valid Java, still leaves the scanner with the identity terminal
+path, and lets the regression exercise endpoint classification rather than fail
+earlier on whole-list covariance.
+
+#### Change surface and safety argument
+
+The production change is confined to two Pure resources:
+
+1. `scanProperties.pure` represents and propagates alternate terminal state;
+2. `graphExtension.pure` consumes that state at the M2M child-enrichment seam.
+
+There is no Java generator, protocol, parser, relational mapping, routing,
+runtime, or connection change. All direct `ScanPropertiesState` constructors
+are initialized explicitly, while its factory overload preserves the old
+callers' “no alternate metadata” behavior.
+
+The safety argument is the conjunction of five invariants:
+
+1. **Legacy continuation is stable.** No branch changes how `current` is chosen;
+   all old consumers still see the same single continuation path.
+2. **Ordinary expressions are stable.** `possibleCurrentsDefined=false` keeps
+   property and qualified-property dependency collection on the old path.
+3. **M2M selection is monotonic.** The M2M consumer uses `legacy current +
+   compatible alternatives`; it never subtracts a legacy path.
+4. **Alternatives are typed.** A branch endpoint is added for child enrichment
+   only when its terminal class and the child's `~src` are equal or related by
+   inheritance. Unrelated root/sibling endpoints do not receive the child's
+   properties.
+5. **Binary merging is opt-in.** `add`, `concatenate`, and `union` create a
+   merged alternate set only if at least one input already carries explicit
+   alternate metadata. Non-branching collection expressions retain their old
+   state shape and continuation behavior.
+
+These invariants explain why the fix is larger than changing the old
+`removeEmptyPaths()->first()` expression but still bounded. A one-line change
+there can choose a different single branch; it cannot represent root versus
+`Nil`, transport several endpoints through functions and lets, record scalar
+dependencies, or protect the symmetric navigation case.
 
 ### The two representations of "a tree"
 
@@ -960,7 +1302,7 @@ fixture-namespace). The JUnit runner is `Test_Pure_Core` in
 To run the suite:
 
 ```bash
-mvn clean test -pl legend-engine-core/legend-engine-core-pure/legend-engine-pure-code-compiled-core -am \
+mvn clean test -pl legend-engine-core/legend-engine-core-pure/legend-engine-pure-code-compiled-core \
     -Dtest=Test_Pure_Core -DfailIfNoTests=false
 ```
 
@@ -974,6 +1316,121 @@ Tests are Pure functions annotated `<<test.Test>>`. A `<<test.ToFix>>`
 annotation marks a deliberately-failing test (an unresolved bug pinned as
 a regression marker). The framework counts ToFix-marked tests but does
 not require them to pass.
+
+### Conditional-current regression matrix
+
+`conditionalCurrentPaths.pure` is the focused regression file for branching
+model-valued property mappings. It deliberately pairs every “keep the source
+root” case with a “keep the navigated current” counterexample:
+
+| Test | Shape protected |
+|---|---|
+| `testIdentityEndpointIsRetained` | Inline `if`: `[children]` versus the empty/root path. |
+| `testNamedFunctionEndpointsAndCacheAreRetained` | The same branch endpoints returned by a named function invoked twice, exercising both function-cache write and cache hit. |
+| `testNestedConditionalRetainsEveryDepth` | Nested `if` endpoints at root, one hop, and two hops. |
+| `testMatchRetainsIdentityAndNavigationEndpoints` | `match` case aggregation with an inner conditional. |
+| `testIdentityEndpointIsRetainedWhenBranchOrderIsReversed` | Root and navigation in reversed then/else order; endpoint selection cannot depend on which branch is scanned first. |
+| `testEmptyElseBranchIsNotIdentity` | A `Nil` else branch contributes no root endpoint. |
+| `testEmptyThenBranchIsNotIdentity` | The same `Nil` distinction with branch order reversed. |
+| `testNestedEmptyBranchDoesNotBecomeIdentity` | Nested `if` combines one-hop, two-hop, and empty endpoints without manufacturing root. |
+| `testNamedFunctionCacheResolvesEveryCallSitePrefix` | The same cached conditional helper at `primary` and `secondary`; dummy paths must resolve independently. |
+| `testConditionalEndpointsSurviveDelegatingFunction` | Function A calls conditional function B and returns its endpoints. |
+| `testNamedEmptyFunctionDoesNotBecomeIdentity` | A declared model-returning helper whose body is `[]` remains an empty endpoint set. |
+| `testNavigationAfterConditionalTransformsEveryEndpoint` | `.children` after `if` is appended to root and navigated alternatives independently. |
+| `testConditionalEndpointsSurviveFunctionArgument` | A conditional model value crosses a named-function argument boundary. |
+| `testConditionalEndpointsSurviveLetBinding` | A conditional model value is stored in and read from a `let`. |
+| `testConditionalEndpointsSurviveFilter` | Predicate dependencies are collected while the filtered collection retains the input endpoints. |
+| `testConditionalEndpointsAreTransformedInsideMap` | A mapper returns a new path for every input endpoint. |
+| `testConditionalEndpointsSurviveTransparentCollectionFunction` | `first()` preserves the input endpoint set while changing multiplicity. |
+| `testMatchEmptyBranchIsNotIdentity` | `match` combines a navigation result and a typed empty/default case. |
+| `testConditionalEndpointsSurviveSortBy` | A sort-key lambda adds dependencies but does not replace collection endpoints. |
+| `testConditionalEndpointsSurviveComparatorSort` | A two-parameter comparator lambda has the same endpoint-preservation rule. |
+| `testConditionalEndpointsSurviveNestedLetNavigation` | Conditional → let → property → let → return composes both state transports. |
+| `testConditionalEndpointsSurviveQualifiedProperty` | Qualified-property requirements and post-conditional child enrichment survive together. |
+| `testNestedMatchIfAndEmptyRetainOnlyRealEndpoints` | Named `match` + nested `if` + typed empty default flattens only reachable model endpoints. |
+| `testAllEmptyBranchesPreserveLegacyRootContinuation` | The bounded fix keeps the historical root fallback when every typed branch is empty. |
+| `testScalarPropertyAfterConditionalIncludesEveryBranchDependency` | A scalar property appended after `if` is recorded under root and navigation endpoints, without relying on a child mapping. |
+| `testScalarMapAfterConditionalIncludesEveryBranchDependency` | A scalar-valued mapper records its property at every input endpoint. |
+| `testFilterPredicateIncludesEveryBranchDependency` | A predicate-only `rank` read is present at root and under `children`; the child mapping reads only `name`, so it cannot mask the assertion. |
+| `testSortKeyIncludesEveryBranchDependency` | A sort-key-only property is collected at every endpoint while value endpoints remain unchanged. |
+| `testComparatorIncludesEveryBranchDependency` | Both comparator parameters retain the alternate state and collect their independent scalar property. |
+| `testExistsPredicateIncludesEveryBranchDependency` | A primitive Boolean result still carries every model dependency read by its predicate. |
+| `testScalarQualifiedPropertyIncludesEveryBranchDependency` | A scalar qualified property records root and navigated requirements plus their expanded dependency paths. |
+| `testConcatenateRetainsConditionalAndSecondCollectionEndpoints` | A branching first collection and an ordinary sibling collection both remain child-enrichment endpoints. |
+| `testUnionRetainsConditionalAndSecondCollectionEndpoints` | `union` applies the same endpoint union without changing its legacy continuation. |
+| `testAddRetainsConditionalAndAddedEndpoint` | A scalar element added to a branching collection contributes its source terminal. |
+| `testLiteralCollectionRetainsEveryNestedEndpoint` | The equivalent literal collection already preserves conditional/root and sibling terminals, acting as the control that localizes the three combinator failures. |
+| `testConcatenateRetainsRootOperandAsAnEndpoint` | An ordinary `$src` second operand normalizes to the empty/root path rather than disappearing. |
+| `testConcatenateDoesNotTurnNilOperandIntoRoot` | A typed `Nil` branch contributes no root endpoint when combined with a real sibling endpoint. |
+| `testConcatenateUnionsEndpointsFromBothConditionalOperands` | Both operands may branch; root, one-hop, two-hop, and sibling terminals are all retained. |
+| `testSubtypeTerminalIsCompatibleWithBaseChildSource` | A subtype terminal can feed a base-sourced child mapping. |
+| `testBaseTerminalIsCompatibleWithSubtypeChildSource` | A base-declared terminal plus subtype cast retains subtype-only properties. |
+| `testNavigationEndpointRemainsCurrent` | The symmetric `Root.container` case: the child mapping is `~src Container`, so root must not replace navigation. |
+| `testDeepNavigationsAreRetainedAndIncompatibleRootIsExcluded` | Two deep compatible navigation endpoints plus an unrelated root endpoint through a named function and element cast. |
+| `testIncompatibleSiblingIsScannedButNotEnrichedWithChildProperties` | An unrelated sibling remains a branch dependency but does not receive a compatible child's getters. |
+| `testIncompatibleFirstSiblingIsNotPreservedAsConditionalCurrent` | The same incompatible/compatible siblings in reversed branch order; legacy-current preservation does not attach child getters to the unrelated first branch. |
+
+On the unmodified scanner, the first focused reproduction produced exactly one
+failure while the navigation counterexample passed:
+
+```text
+Tests run: 1112, Failures: 1
+
+expected: IdentitySource { children { name }, chooseChildren, name }
+actual:   IdentitySource { children { name }, chooseChildren }
+```
+
+That baseline is important: it proves both the missing root property and the
+fact that globally changing `current` would damage an already-working shape.
+
+The retained regression coverage is deliberately engine-local. Final
+verification for this change is recorded below:
+
+```text
+Test_Pure_Core: 1154 tests, 0 failures, 0 errors
+Test_JAVA_PCT:  1122 tests, 0 failures, 0 errors
+```
+
+The first PCT attempt exposed a stale local Maven artifact, not a behavioral
+failure: the current relation test manifest referenced
+`testFilterEqualOnNullableColumns`, but the installed compiled-functions
+relation JAR predated that method and failed with `NoSuchMethodException`.
+Rebuilding only
+`legend-engine-pure-runtime-java-extension-compiled-functions-relation` and
+confirming the four nullable-column methods with `javap` repaired the local
+test classpath. The complete rerun then executed all 1,122 Java PCT tests,
+including 355 Relation tests and the covariance-sensitive nullable-column
+case, with zero failures or errors. The same 1,122-test run was repeated after
+the final binary-combination change and local compiled-core installation. No
+broad reactor build was used.
+
+The focused test expansion was also used as a mutation check while the design
+was evolving. It caught real defects rather than merely turning green with the
+implementation:
+
+| Intermediate implementation | Result | Gap demonstrated |
+|---|---|---|
+| conditional terminals only | three focused failures | `[]` and root identity were indistinguishable |
+| explicit empty-terminal state | three different focused failures | function arguments, lets, and post-conditional property access dropped the metadata |
+| child-endpoint propagation without scalar expansion | six focused failures | child placement was correct, but scalar properties read at the identity endpoint were omitted from `result` |
+| full propagation, filter-only child-path selection | existing operation test failed | replacing/filtering legacy `current` breaks legal cross-typed operation enrichment |
+| full propagation before binary-combination transport | exactly three focused failures; literal control passed | `add`, `concatenate`, and `union` rebuilt state from one legacy `current` and dropped all other value terminals |
+| full propagation, legacy-plus-compatible selection | complete focused and core suite passes | preserves old behavior and adds only type-compatible alternate endpoints |
+
+Two earlier expansions each produced a single expected-tree mismatch
+(inheritance subtype rendering and qualified-property `[requires: ...]`
+rendering) while their behavioral assertions passed. The final scalar expansion
+first produced the six genuine missing-dependency failures shown above; after
+the property-result fix, its only two remaining mismatches were the newly
+correct root-level qualified-property requirements. Rendering-only expectations
+were corrected to the engine's intentional graph representation; production
+code was changed only for the six behavioral failures.
+
+The core run also includes
+`unionMappingFromSourceRootandSourceProperty`. That existing operation-mapping
+test caught the unsafe first version of endpoint selection, which filtered out
+a legacy cross-typed path. It is the regression proof for the monotonic
+“legacy plus compatible alternatives” invariant.
 
 ### Authoring a regression test for the new-instance operator pattern
 
