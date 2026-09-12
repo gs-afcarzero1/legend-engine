@@ -1,0 +1,13 @@
+Original-source isolated JSON runtime regression run
+Engine revision: 07cc41529fd85b9ed2c71813ef8b15956e070ba2
+Tests run: 7
+Failures: 5
+
+Failures:
+- Number input changed with an unrelated Decimal property: integral 9007199254740993 became 9.007199254740992E15 and 1E+400 became Infinity.
+- Decimal input lost 1E+10000 and converted 1E-10000 to 0.0.
+- Fractional and out-of-range Integer inputs were accepted through truncation or overflow.
+- JSON externalization accepted nonfinite Float output.
+- JSON externalization failed to write Decimal values with scale outside [-9999, 9999].
+
+The same seven tests pass with the implementation changes.

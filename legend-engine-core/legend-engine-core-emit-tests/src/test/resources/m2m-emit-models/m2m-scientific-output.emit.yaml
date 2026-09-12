@@ -1,0 +1,17 @@
+name: m2m-scientific-output
+title: "Scientific graph output beyond the plain Decimal scale limit"
+description: Executable mapping assertions cover required, optional and repeated Decimal and Number output at extreme scales.
+modelSources:
+  model:
+    root: m2m-scientific-output
+    files:
+      - model.pure
+features:
+  - execution:test-data
+  - mapping:mapping
+  - scaffolding:class
+stores: []
+complexity: intermediate
+tags:
+  - m2m
+  - scientific-notation

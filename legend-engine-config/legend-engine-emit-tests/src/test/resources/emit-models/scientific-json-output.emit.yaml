@@ -1,0 +1,17 @@
+name: scientific-json-output
+title: "Scientific JSON output fallback"
+description: Executable services internalize nested JSON, serialize graph and external-format results, and consume serialized results again.
+modelSources:
+  model:
+    root: scientific-json-output
+    files:
+      - model.pure
+features:
+  - execution:test-data
+  - scaffolding:class
+stores: []
+complexity: advanced
+tags:
+  - scientific-notation
+  - service
+  - json

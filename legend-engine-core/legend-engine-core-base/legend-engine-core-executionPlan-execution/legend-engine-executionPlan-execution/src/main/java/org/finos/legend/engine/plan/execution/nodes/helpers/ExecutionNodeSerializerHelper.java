@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.util.TokenBuffer;
 import org.eclipse.collections.impl.block.factory.Functions;
 import org.finos.legend.engine.plan.dependencies.domain.date.PureDate;
+import org.finos.legend.engine.plan.dependencies.json.JsonNumericWriter;
 import org.finos.legend.engine.plan.dependencies.store.platform.IGraphSerializer;
 import org.finos.legend.engine.plan.dependencies.store.platform.IPlatformPureExpressionExecutionNodeSerializeSpecifics;
 import org.finos.legend.engine.plan.dependencies.store.platform.ISerializationWriter;
@@ -724,7 +725,7 @@ public class ExecutionNodeSerializerHelper
         {
             try
             {
-                generator.writeNumber(value);
+                JsonNumericWriter.writeFloat(generator, value);
             }
             catch (IOException e)
             {
@@ -736,7 +737,7 @@ public class ExecutionNodeSerializerHelper
         {
             try
             {
-                generator.writeNumber(value);
+                JsonNumericWriter.writeDecimal(generator, value);
             }
             catch (IOException e)
             {

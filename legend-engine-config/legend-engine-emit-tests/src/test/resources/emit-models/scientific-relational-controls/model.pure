@@ -1,0 +1,263 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+###Pure
+Class numeric::relational::Row
+{
+  id: Integer[1];
+  i: Integer[1];
+  f: Float[1];
+  d: Decimal[1];
+  optional: Decimal[0..1];
+  label: String[1];
+}
+###Relational
+Database numeric::relational::DB
+(
+  Table NumericRow
+  (
+    id INTEGER PRIMARY KEY,
+    i BIGINT,
+    f DOUBLE,
+    d DECIMAL(30,18),
+    optional DECIMAL(30,18),
+    label VARCHAR(100)
+  )
+)
+###Mapping
+Mapping numeric::relational::Mapping
+(
+  *numeric::relational::Row: Relational
+  {
+    ~primaryKey ([numeric::relational::DB]NumericRow.id)
+    ~mainTable [numeric::relational::DB]NumericRow
+    id: [numeric::relational::DB]NumericRow.id,
+    i: [numeric::relational::DB]NumericRow.i,
+    f: [numeric::relational::DB]NumericRow.f,
+    d: [numeric::relational::DB]NumericRow.d,
+    optional: [numeric::relational::DB]NumericRow.optional,
+    label: [numeric::relational::DB]NumericRow.label
+  }
+)
+###Connection
+RelationalDatabaseConnection numeric::relational::H2
+{
+  store: numeric::relational::DB;
+  type: H2;
+  specification: LocalH2 {};
+  auth: DefaultH2;
+}
+###Runtime
+Runtime numeric::relational::Runtime
+{
+  mappings: [numeric::relational::Mapping];
+  connections: [numeric::relational::DB: [db: numeric::relational::H2]];
+}
+###ExternalFormat
+Binding numeric::relational::Binding
+{
+  contentType: 'application/json';
+  modelIncludes: [numeric::relational::Row];
+}
+###Service
+Service numeric::relational::Graph
+{
+  pattern: '/numeric/relational/Graph';
+  documentation: 'Numeric relational compatibility through Graph.';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: |numeric::relational::Row.all()->graphFetch(#{numeric::relational::Row{id, i, f, d, optional, label}}#)->serialize(#{numeric::relational::Row{id, i, f, d, optional, label}}#);
+    mapping: numeric::relational::Mapping;
+    runtime: numeric::relational::Runtime;
+  }
+  testSuites:
+  [
+    numericSuite:
+    {
+      data:
+      [
+        connections:
+        [
+          db: Relational
+          #{
+            default.NumericRow: 'id,i,f,d,optional,label\n1,9007199254740993,0.00125,1.234567890123456789,,ordinary\n2,-9007199254740993,-25.0,-2.500000000000000001,0,negative\n';
+          }#
+        ]
+      ]
+      tests:
+      [
+        exactValues:
+        {
+          serializationFormat: PURE;
+          asserts: [exact: EqualToJson #{ expected: ExternalFormat #{ contentType: 'application/json'; data: '[{"id":1,"i":9007199254740993,"f":0.00125,"d":1.234567890123456789,"optional":null,"label":"ordinary"},{"id":2,"i":-9007199254740993,"f":-25.0,"d":-2.500000000000000001,"optional":0,"label":"negative"}]'; }#; }#]
+        }
+      ]
+    }
+  ]
+}
+
+###Service
+Service numeric::relational::Externalize
+{
+  pattern: '/numeric/relational/Externalize';
+  documentation: 'Numeric relational compatibility through Externalize.';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: |numeric::relational::Row.all()->graphFetch(#{numeric::relational::Row{id, i, f, d, optional, label}}#)->externalize(numeric::relational::Binding, #{numeric::relational::Row{id, i, f, d, optional, label}}#);
+    mapping: numeric::relational::Mapping;
+    runtime: numeric::relational::Runtime;
+  }
+  testSuites:
+  [
+    numericSuite:
+    {
+      data:
+      [
+        connections:
+        [
+          db: Relational
+          #{
+            default.NumericRow: 'id,i,f,d,optional,label\n1,9007199254740993,0.00125,1.234567890123456789,,ordinary\n2,-9007199254740993,-25.0,-2.500000000000000001,0,negative\n';
+          }#
+        ]
+      ]
+      tests:
+      [
+        exactValues:
+        {
+          serializationFormat: PURE;
+          asserts: [exact: EqualToJson #{ expected: ExternalFormat #{ contentType: 'application/json'; data: '[{"id":1,"i":9007199254740993,"f":0.00125,"d":1.234567890123456789,"optional":null,"label":"ordinary"},{"id":2,"i":-9007199254740993,"f":-25.0,"d":-2.500000000000000001,"optional":0,"label":"negative"}]'; }#; }#]
+        }
+      ]
+    }
+  ]
+}
+
+###Service
+Service numeric::relational::Tabular
+{
+  pattern: '/numeric/relational/Tabular';
+  documentation: 'Numeric relational compatibility through Tabular.';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: |numeric::relational::Row.all()->project([x|$x.id,x|$x.i,x|$x.f,x|$x.d,x|$x.optional,x|$x.label],['id','i','f','d','optional','label']);
+    mapping: numeric::relational::Mapping;
+    runtime: numeric::relational::Runtime;
+  }
+  testSuites:
+  [
+    numericSuite:
+    {
+      data:
+      [
+        connections:
+        [
+          db: Relational
+          #{
+            default.NumericRow: 'id,i,f,d,optional,label\n1,9007199254740993,0.00125,1.234567890123456789,,ordinary\n2,-9007199254740993,-25.0,-2.500000000000000001,0,negative\n';
+          }#
+        ]
+      ]
+      tests:
+      [
+        exactValues:
+        {
+          serializationFormat: PURE_TDSOBJECT;
+          asserts: [exact: EqualToJson #{ expected: ExternalFormat #{ contentType: 'application/json'; data: '[{"id":1,"i":9007199254740993,"f":0.00125,"d":1.234567890123456789,"optional":null,"label":"ordinary"},{"id":2,"i":-9007199254740993,"f":-25.0,"d":-2.500000000000000001,"optional":0,"label":"negative"}]'; }#; }#]
+        }
+      ]
+    }
+  ]
+}
+
+###Service
+Service numeric::relational::Operations
+{
+  pattern: '/numeric/relational/Operations';
+  documentation: 'Numeric parameters, filters, comparisons, arithmetic, and explicit casts.';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: threshold:Decimal[1]|numeric::relational::Row.all()->filter(x|$x.d > $threshold)->project([x|$x.i + 7,x|$x.f * 2.0,x|$x.d + $threshold,x|$x.i->toFloat()],['integerArithmetic','floatArithmetic','decimalArithmetic','explicitCast']);
+    mapping: numeric::relational::Mapping;
+    runtime: numeric::relational::Runtime;
+  }
+  testSuites:
+  [
+    numericSuite:
+    {
+      data:
+      [
+        connections:
+        [
+          db: Relational
+          #{
+            default.NumericRow: 'id,i,f,d,optional,label\n1,9007199254740993,0.00125,1.234567890123456789,,ordinary\n2,-9007199254740993,-25.0,-2.500000000000000001,0,negative\n';
+          }#
+        ]
+      ]
+      tests:
+      [
+        exactValues:
+        {
+          serializationFormat: PURE_TDSOBJECT;
+          parameters: [threshold = 1.0d]
+          asserts: [exact: EqualToJson #{ expected: ExternalFormat #{ contentType: 'application/json'; data: '[{"integerArithmetic":9007199254741000,"floatArithmetic":0.0025,"decimalArithmetic":2.234567890123456789,"explicitCast":9.007199254740992E15}]'; }#; }#]
+        }
+      ]
+    }
+  ]
+}
+
+###Service
+Service numeric::relational::Aggregate
+{
+  pattern: '/numeric/relational/Aggregate';
+  documentation: 'Numeric parameter binding, comparison, filtering, and Decimal aggregation.';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: threshold:Decimal[1]|numeric::relational::Row.all()->filter(x|$x.d > $threshold)->groupBy([], [agg(x|$x.d, y|$y->sum())], ['total']);
+    mapping: numeric::relational::Mapping;
+    runtime: numeric::relational::Runtime;
+  }
+  testSuites:
+  [
+    numericSuite:
+    {
+      data:
+      [
+        connections:
+        [
+          db: Relational
+          #{
+            default.NumericRow: 'id,i,f,d,optional,label\n1,9007199254740993,0.00125,1.234567890123456789,,ordinary\n2,-9007199254740993,-25.0,-2.500000000000000001,0,negative\n';
+          }#
+        ]
+      ]
+      tests:
+      [
+        exactValue:
+        {
+          serializationFormat: PURE_TDSOBJECT;
+          parameters: [threshold = 1.0d]
+          asserts: [exact: EqualToJson #{ expected: ExternalFormat #{ contentType: 'application/json'; data: '[{"total":1.234567890123456789}]'; }#; }#]
+        }
+      ]
+    }
+  ]
+}

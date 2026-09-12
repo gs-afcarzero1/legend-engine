@@ -19,6 +19,7 @@ import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.finos.legend.engine.external.shared.runtime.write.ExternalFormatWriter;
 import org.finos.legend.engine.plan.dependencies.domain.date.PureDate;
+import org.finos.legend.engine.plan.dependencies.json.JsonNumericWriter;
 import org.finos.legend.engine.plan.dependencies.store.shared.IExecutionNodeContext;
 
 import java.io.IOException;
@@ -671,7 +672,7 @@ public class JsonDataWriter<T> extends ExternalFormatWriter
         {
             try
             {
-                generator.writeNumber(value);
+                JsonNumericWriter.writeFloat(generator, value);
             }
             catch (IOException e)
             {
@@ -683,7 +684,7 @@ public class JsonDataWriter<T> extends ExternalFormatWriter
         {
             try
             {
-                generator.writeNumber(value);
+                JsonNumericWriter.writeDecimal(generator, value);
             }
             catch (IOException e)
             {

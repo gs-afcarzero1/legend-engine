@@ -1,0 +1,135 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+###Pure
+Class numeric::output::Child
+{
+  value: Decimal[1];
+}
+Class numeric::output::Document
+{
+  d: Decimal[1];
+  n: Number[1];
+  i: Integer[1];
+  f: Float[1];
+  child: numeric::output::Child[0..1];
+  values: Decimal[*];
+  empty: Decimal[*];
+  label: String[0..1];
+}
+###Mapping
+Mapping numeric::output::Mapping ()
+###Runtime
+Runtime numeric::output::Runtime
+{
+  mappings: [numeric::output::Mapping];
+}
+###ExternalFormat
+Binding numeric::output::Binding
+{
+  contentType: 'application/json';
+  modelIncludes: [numeric::output::Document, numeric::output::Child];
+}
+###Service
+Service numeric::output::Graph
+{
+  pattern: '/numeric/scientific-json-output/Graph';
+  documentation: 'Exact numeric JSON through Graph.';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: |numeric::output::Document->internalize(numeric::output::Binding, '[{"d":1e10000,"n":9007199254740993,"i":9223372036854775807,"f":1.25e-3,"child":{"value":1.2345678901234567890123456789},"values":[1e-10000,-2.5E+2],"empty":[],"label":"ordinary control"},{"d":1e-10000,"n":1.25e-3,"i":-9223372036854775808,"f":-2.5E+2,"child":null,"values":[],"empty":[],"label":null}]')->graphFetch(#{numeric::output::Document{d, n, i, f, child{value}, values, empty, label}}#)->serialize(#{numeric::output::Document{d, n, i, f, child{value}, values, empty, label}}#);
+    mapping: numeric::output::Mapping;
+    runtime: numeric::output::Runtime;
+  }
+  testSuites:
+  [
+    numericSuite:
+    {
+      tests:
+      [
+        preservesNumbers:
+        {
+          asserts:
+          [
+            exact: EqualToJson
+              #{ expected: ExternalFormat #{ contentType: 'application/json'; data: '{"builder":{"_type":"json"},"values":[{"d":1e10000,"n":9007199254740993,"i":9223372036854775807,"f":1.25e-3,"child":{"value":1.2345678901234567890123456789},"values":[1e-10000,-2.5E+2],"empty":[],"label":"ordinary control"},{"d":1e-10000,"n":1.25e-3,"i":-9223372036854775808,"f":-2.5E+2,"child":null,"values":[],"empty":[],"label":null}]}'; }#; }#
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+###Service
+Service numeric::output::Externalize
+{
+  pattern: '/numeric/scientific-json-output/Externalize';
+  documentation: 'Exact numeric JSON through Externalize.';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: |numeric::output::Document->internalize(numeric::output::Binding, '[{"d":1e10000,"n":9007199254740993,"i":9223372036854775807,"f":1.25e-3,"child":{"value":1.2345678901234567890123456789},"values":[1e-10000,-2.5E+2],"empty":[],"label":"ordinary control"},{"d":1e-10000,"n":1.25e-3,"i":-9223372036854775808,"f":-2.5E+2,"child":null,"values":[],"empty":[],"label":null}]')->graphFetch(#{numeric::output::Document{d, n, i, f, child{value}, values, empty, label}}#)->externalize(numeric::output::Binding, #{numeric::output::Document{d, n, i, f, child{value}, values, empty, label}}#);
+    mapping: numeric::output::Mapping;
+    runtime: numeric::output::Runtime;
+  }
+  testSuites:
+  [
+    numericSuite:
+    {
+      tests:
+      [
+        preservesNumbers:
+        {
+          asserts:
+          [
+            exact: EqualToJson
+              #{ expected: ExternalFormat #{ contentType: 'application/json'; data: '[{"d":1e10000,"n":9007199254740993,"i":9223372036854775807,"f":1.25e-3,"child":{"value":1.2345678901234567890123456789},"values":[1e-10000,-2.5E+2],"empty":[],"label":"ordinary control"},{"d":1e-10000,"n":1.25e-3,"i":-9223372036854775808,"f":-2.5E+2,"child":null,"values":[],"empty":[],"label":null}]'; }#; }#
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+###Service
+Service numeric::output::MixedPath
+{
+  pattern: '/numeric/scientific-json-output/MixedPath';
+  documentation: 'Exact numeric JSON through internalization, object mapping, and externalization.';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: |numeric::output::Document->internalize(numeric::output::Binding, '[{"d":1e10000,"n":9007199254740993,"i":9223372036854775807,"f":1.25e-3,"child":{"value":1.2345678901234567890123456789},"values":[1e-10000,-2.5E+2],"empty":[],"label":"ordinary control"},{"d":1e-10000,"n":1.25e-3,"i":-9223372036854775808,"f":-2.5E+2,"child":null,"values":[],"empty":[],"label":null}]')->graphFetch(#{numeric::output::Document{d, n, i, f, child{value}, values, empty, label}}#)->externalize(numeric::output::Binding, #{numeric::output::Document{d, n, i, f, child{value}, values, empty, label}}#);
+    mapping: numeric::output::Mapping;
+    runtime: numeric::output::Runtime;
+  }
+  testSuites:
+  [
+    numericSuite:
+    {
+      tests:
+      [
+        preservesNumbers:
+        {
+          asserts:
+          [
+            exact: EqualToJson
+              #{ expected: ExternalFormat #{ contentType: 'application/json'; data: '[{"d":1e10000,"n":9007199254740993,"i":9223372036854775807,"f":1.25e-3,"child":{"value":1.2345678901234567890123456789},"values":[1e-10000,-2.5E+2],"empty":[],"label":"ordinary control"},{"d":1e-10000,"n":1.25e-3,"i":-9223372036854775808,"f":-2.5E+2,"child":null,"values":[],"empty":[],"label":null}]'; }#; }#
+          ]
+        }
+      ]
+    }
+  ]
+}

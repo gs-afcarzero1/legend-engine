@@ -26,6 +26,8 @@ public class TestScientificServices
     Stream<DynamicContainer> scientificModels()
     {
         return EMITTestSuiteBuilder.testContainers("emit-models/",
-                "scientific-json-input");
+                "scientific-json-input",
+                "scientific-json-output",
+                "scientific-relational-controls");
     }
 }

@@ -1,0 +1,17 @@
+Baseline attempt: 2026-09-12
+Engine revision: 07cc41529fd85b9ed2c71813ef8b15956e070ba2
+Source descriptor inventory: 118, all tracked
+
+Command:
+mvn -o -pl legend-engine-core/legend-engine-core-emit-tests,legend-engine-xts-relationalStore/legend-engine-xt-relationalStore-emit,legend-engine-xts-service/legend-engine-xt-service-emit,legend-engine-config/legend-engine-emit-tests org.apache.maven.plugins:maven-surefire-plugin:2.22.2:test -Dtest=*EMITTests -DfailIfNoTests=false
+
+Result: BUILD FAILURE before test execution
+Tests run: 0
+Failures: 0
+Skips: all requested downstream modules were skipped
+
+Unresolved current-revision artifacts:
+- org.finos.legend.engine:legend-engine-emit-junit:4.145.1-SNAPSHOT
+- org.finos.legend.engine:legend-engine-test-runner-mapping:4.145.1-SNAPSHOT
+
+Existing target reports were from 4.139.3-SNAPSHOT and were not used as the baseline.

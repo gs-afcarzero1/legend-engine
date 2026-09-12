@@ -1,0 +1,10 @@
+Original-source isolated graph writer regression run
+Engine revision: 07cc41529fd85b9ed2c71813ef8b15956e070ba2
+Tests run: 3
+Failures: 2
+
+Failures:
+- Graph serialization accepted nonfinite Float output.
+- Graph serialization failed to write Decimal values with scale outside [-9999, 9999].
+
+The same three tests pass with the implementation changes.

@@ -29,6 +29,7 @@ public class TestScientificM2M
                 "m2m-scientific-input-modelstore",
                 "m2m-scientific-input-modelstore-decimal",
                 "m2m-scientific-input-legacy",
-                "m2m-scientific-input-legacy-decimal");
+                "m2m-scientific-input-legacy-decimal",
+                "m2m-scientific-output");
     }
 }
