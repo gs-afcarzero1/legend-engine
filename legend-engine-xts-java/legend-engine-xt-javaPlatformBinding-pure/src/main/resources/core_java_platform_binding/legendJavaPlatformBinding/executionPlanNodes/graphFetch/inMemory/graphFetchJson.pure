@@ -547,23 +547,21 @@ function <<access.private>> meta::pure::mapping::modelToModel::executionPlan::pl
    let jThis  = j_this($class);
    let parser = $jThis->j_field('parser');
    let objectMapper = $jThis->j_field('objectMapper');
-   let objectMapperInstantiation = if($useBigDecimalForFloats->isTrue(),
-                                      | $objectMapper->j_assign(objectMapper()->j_new([])->j_invoke('configure', [deserializationFeatureBigDecimalForFloats()->j_field('USE_BIG_DECIMAL_FOR_FLOATS', deserializationFeatureBigDecimalForFloats()), j_true()] , objectMapper())),
-                                      | $objectMapper->j_assign(objectMapper()->j_new([]))
-                                    );
+   let numericSupport = javaClass('org.finos.legend.engine.plan.dependencies.json.JsonNumericSupport');
+   let objectMapperInstantiation = $objectMapper->j_assign(objectMapper()->j_new([]));
 
    $class->imports(javaClass('com.fasterxml.jackson.core.filter.FilteringParserDelegate'))
          ->imports(javaClass('com.fasterxml.jackson.core.filter.JsonPointerBasedFilter'))
          ->addMethod(javaMethod('public', javaVoid(), 'initReading', [],
                      if($pathOffset->isEmpty(),
                        |[
-                           $parser->j_assign(jsonFactory()->j_new([])->j_invoke('createParser', $jThis->j_field('in'), jsonParser())),
+                           $parser->j_assign($numericSupport->j_invoke('exactParser', jsonFactory()->j_new([])->j_invoke('createParser', $jThis->j_field('in'), jsonParser()), jsonParser())),
                            $objectMapperInstantiation
                         ],
                        |let baseParserVar = j_variable(jsonParser(), 'baseParser');
                         [
                            $baseParserVar->j_declare(jsonFactory()->j_new([])->j_invoke('createParser', $jThis->j_field('in'), jsonParser())),
-                           $parser->j_assign(jsonFilteringParserDelegate()->j_new([$baseParserVar, jsonPointerBasedFilter()->j_new(j_string($pathOffset->toOne())), j_boolean(false), j_boolean(false)])),
+                           $parser->j_assign($numericSupport->j_invoke('exactParser', jsonFilteringParserDelegate()->j_new([$baseParserVar, jsonPointerBasedFilter()->j_new(j_string($pathOffset->toOne())), j_boolean(false), j_boolean(false)]), jsonParser())),
                            $objectMapperInstantiation
                         ];
                      )->j_ioExTryCatch()

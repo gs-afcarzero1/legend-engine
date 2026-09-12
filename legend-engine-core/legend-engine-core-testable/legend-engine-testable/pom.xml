@@ -28,6 +28,10 @@
 
 
     <dependencies>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-executionPlan-dependencies</artifactId>
+        </dependency>
         <!-- PURE -->
         <dependency>
             <groupId>org.finos.legend.pure</groupId>

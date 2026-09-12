@@ -579,4 +579,27 @@ public class TestTestAssertionEvaluator
         c.genericType = new GenericType(new PackageableType(rawTypeFullPath));
         return c;
     }
+
+    @Test
+    public void testEqualToJsonDistinguishesNearbyNumbersAndExtremeExponents()
+    {
+        for (String[] pair : new String[][]{
+                {"9007199254740992", "9007199254740993"},
+                {"9223372036854775806", "9223372036854775807"},
+                {"1.23456789012345678901234567890", "1.23456789012345678901234567891"},
+                {"1e400", "1.00000000000000000000000000001e400"},
+                {"1e-400", "1.00000000000000000000000000001e-400"},
+                {"1e10000", "2e10000"},
+                {"1e-10000", "2e-10000"}})
+        {
+            ExternalFormatData data = new ExternalFormatData();
+            data.contentType = "application/json";
+            data.data = "{\"value\":" + pair[0] + "}";
+            EqualToJson assertion = new EqualToJson();
+            assertion.expected = data;
+            Assert.assertTrue(pair[0], assertion.accept(new TestAssertionEvaluator(new ConstantResult("{\"value\":" + pair[1] + "}"))) instanceof EqualToJsonAssertFail);
+            Assert.assertTrue(pair[0], assertion.accept(new TestAssertionEvaluator(new ConstantResult(data.data))) instanceof AssertPass);
+        }
+    }
+
 }

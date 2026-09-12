@@ -14,11 +14,13 @@
 
 package org.finos.legend.engine.testable.assertion;
 
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import org.finos.legend.engine.plan.dependencies.json.JsonNumericSupport;
 import org.finos.legend.engine.protocol.pure.v1.model.test.assertion.TestAssertion;
 import org.finos.legend.engine.protocol.pure.v1.model.test.assertion.status.AssertPass;
 import org.finos.legend.engine.protocol.pure.v1.model.test.assertion.status.AssertionStatus;
@@ -39,8 +41,8 @@ public class TestAssertionHelper
     protected static AssertionStatus compareAssertionJSON(TestAssertion parentAssertion, String _expected, String _actual) throws IOException
     {
         ObjectMapper objectMapper = buildObjectMapperForJSONComparison();
-        JsonNode expectedJsonNode = objectMapper.readTree(_expected.getBytes());
-        JsonNode actualJsonNode = objectMapper.readTree(_actual.getBytes());
+        JsonNode expectedJsonNode = readExactTree(objectMapper, _expected);
+        JsonNode actualJsonNode = readExactTree(objectMapper, _actual);
 
         AssertionStatus assertionStatus;
         if (JsonNodeComparator.NULL_MISSING_EQUIVALENT_AND_UNORDERED_ARRAYS.compare(expectedJsonNode, actualJsonNode) == 0)
@@ -58,4 +60,13 @@ public class TestAssertionHelper
         assertionStatus.id = parentAssertion.id;
         return assertionStatus;
     }
+
+    private static JsonNode readExactTree(ObjectMapper mapper, String json) throws IOException
+    {
+        try (JsonParser parser = JsonNumericSupport.exactParser(mapper.getFactory().createParser(json)))
+        {
+            return mapper.readTree(parser);
+        }
+    }
+
 }

@@ -45,6 +45,7 @@ function meta::pure::executionPlan::platformBinding::legendJava::library::jackso
 function meta::pure::executionPlan::platformBinding::legendJava::library::jackson::jsonNodeGetter(conventions:Conventions[1], node:Code[1], type:meta::pure::metamodel::type::Type[1]): Code[1]
 {
    let pureDate = $conventions->className(PureDate);
+   let numericSupport = javaClass('org.finos.legend.engine.plan.dependencies.json.JsonNumericSupport');
 
    if($type == String, 
       | $node->j_invoke('textValue', [], javaString()), 
@@ -53,16 +54,16 @@ function meta::pure::executionPlan::platformBinding::legendJava::library::jackso
       | $node->j_invoke('booleanValue', [], javaBoolean()),
       | 
    if($type == Integer,
-      | $node->j_invoke('longValue', [], javaLong()),
+      | $numericSupport->j_invoke('integerValue', $node, javaLong()),
       | 
    if($type == Float,
-      | $node->j_invoke('doubleValue', [], javaDouble()),
+      | $numericSupport->j_invoke('floatValue', $node, javaDouble()),
       | 
    if($type == Decimal,
-      | j_conditional($node->j_invoke('getNodeType', [], jsonNodeType())->j_invoke('equals', jsonNodeType()->j_field('STRING', jsonNodeType())), javaBigDecimal()->j_new($node->j_invoke('textValue', [], javaString())), $node->j_invoke('decimalValue', [], javaBigDecimal())),
+      | $numericSupport->j_invoke('decimalValue', $node, javaBigDecimal()),
       | 
    if($type == Number,
-      | j_conditional($node->j_invoke('getNodeType', [], jsonNodeType())->j_invoke('equals', jsonNodeType()->j_field('STRING', jsonNodeType())), javaBigDecimal()->j_new($node->j_invoke('textValue', [], javaString()))->j_cast(javaNumber()), j_conditional($node->j_invoke('isDouble', [], javaBoolean())->j_eq(j_true()), $node->j_invoke('doubleValue', [], javaNumber()), $node->j_invoke('longValue', [], javaNumber()))),
+      | $numericSupport->j_invoke('numberValue', $node, javaNumber()),
       | 
    if($type == StrictDate,
       | $conventions->codeType($pureDate)->j_invoke('parsePureDate', $node->j_invoke('textValue', [], javaString()), $pureDate),
@@ -82,7 +83,6 @@ function meta::pure::executionPlan::platformBinding::legendJava::library::jackso
         j_null();
    )))))))))));
 }
-
 
 function meta::pure::executionPlan::platformBinding::legendJava::library::jackson::jacksonXmlParserGetter(conventions:Conventions[1], parser:String[1], type:meta::pure::metamodel::type::Type[1]): String[1]
 {

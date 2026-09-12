@@ -14,6 +14,7 @@
 
 package org.finos.legend.engine.plan.compilation;
 
+import org.finos.legend.engine.plan.dependencies.json.JsonNumericSupport;
 import org.finos.legend.engine.shared.javaCompiler.ClassPathFilter;
 
 import java.util.ArrayList;
@@ -22,11 +23,12 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class ExecutionPlanDependenciesFilter implements ClassPathFilter
 {
     private static final Collection<Class<?>> DEPENDENCY_CLASSES =
-            GeneratePureConfig.MAIN_DEPENDENCIES.values().stream()
+            Stream.concat(GeneratePureConfig.MAIN_DEPENDENCIES.values().stream(), Stream.of(JsonNumericSupport.class))
                     .map(ExecutionPlanDependenciesFilter::expandClass)
                     .flatMap(Collection::stream)
                     .collect(Collectors.toSet());

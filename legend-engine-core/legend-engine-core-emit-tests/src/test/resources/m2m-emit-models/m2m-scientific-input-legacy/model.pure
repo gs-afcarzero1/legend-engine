@@ -1,0 +1,107 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+###Pure
+Class numeric::legacyNumber::Source
+{
+  n: Number[1];
+  i: Integer[1];
+  f: Float[1];
+  optional: Number[0..1];
+  repeated: Number[*];
+}
+Class numeric::legacyNumber::Target
+{
+  n: Number[1];
+  i: Integer[1];
+  f: Float[1];
+  optional: Number[0..1];
+  repeated: Number[*];
+  positive: Boolean[1];
+  cancelled: Number[1];
+}
+
+###Mapping
+Mapping numeric::legacyNumber::Mapping
+(
+  *numeric::legacyNumber::Target: Pure
+  {
+    ~src numeric::legacyNumber::Source
+    n: $src.n,
+    i: $src.i,
+    f: $src.f,
+    optional: $src.optional,
+    repeated: $src.repeated,
+    positive: $src.n > 0,
+    cancelled: $src.n - $src.n
+  }
+
+  MappingTests
+  [
+    lowerExponent
+    (
+      query: |numeric::legacyNumber::Target.all()->graphFetch(#{numeric::legacyNumber::Target{n, i, f, optional, repeated, positive, cancelled}}#)->serialize(#{numeric::legacyNumber::Target{n, i, f, optional, repeated, positive, cancelled}}#);
+      data: [<Object, JSON, numeric::legacyNumber::Source, '{"n":1.25e-3,"i":1e3,"f":-2.5e1,"optional":null,"repeated":[1.25e-3,9007199254740993]}'>];
+      assert: '{"n":0.00125,"i":1000,"f":-25.0,"optional":null,"repeated":[0.00125,9007199254740993],"positive":true,"cancelled":0.00000}';
+    ),
+    upperSigned
+    (
+      query: |numeric::legacyNumber::Target.all()->graphFetch(#{numeric::legacyNumber::Target{n, i, f, optional, repeated, positive, cancelled}}#)->serialize(#{numeric::legacyNumber::Target{n, i, f, optional, repeated, positive, cancelled}}#);
+      data: [<Object, JSON, numeric::legacyNumber::Source, '{"n":-1.25E+3,"i":-2E+2,"f":1.25E-3,"optional":null,"repeated":[1.25e-3,9007199254740993]}'>];
+      assert: '{"n":-1.25E+3,"i":-200,"f":0.00125,"optional":null,"repeated":[0.00125,9007199254740993],"positive":false,"cancelled":0E+1}';
+    ),
+    plainEquivalent
+    (
+      query: |numeric::legacyNumber::Target.all()->graphFetch(#{numeric::legacyNumber::Target{n, i, f, optional, repeated, positive, cancelled}}#)->serialize(#{numeric::legacyNumber::Target{n, i, f, optional, repeated, positive, cancelled}}#);
+      data: [<Object, JSON, numeric::legacyNumber::Source, '{"n":0.00125,"i":1000,"f":-25.0,"optional":null,"repeated":[1.25e-3,9007199254740993]}'>];
+      assert: '{"n":0.00125,"i":1000,"f":-25.0,"optional":null,"repeated":[0.00125,9007199254740993],"positive":true,"cancelled":0.00000}';
+    ),
+    zero
+    (
+      query: |numeric::legacyNumber::Target.all()->graphFetch(#{numeric::legacyNumber::Target{n, i, f, optional, repeated, positive, cancelled}}#)->serialize(#{numeric::legacyNumber::Target{n, i, f, optional, repeated, positive, cancelled}}#);
+      data: [<Object, JSON, numeric::legacyNumber::Source, '{"n":0e-3,"i":0e3,"f":0e0,"optional":null,"repeated":[1.25e-3,9007199254740993]}'>];
+      assert: '{"n":0.000,"i":0,"f":0.0,"optional":null,"repeated":[0.00125,9007199254740993],"positive":false,"cancelled":0.000}';
+    ),
+    aboveDoublePrecision
+    (
+      query: |numeric::legacyNumber::Target.all()->graphFetch(#{numeric::legacyNumber::Target{n, i, f, optional, repeated, positive, cancelled}}#)->serialize(#{numeric::legacyNumber::Target{n, i, f, optional, repeated, positive, cancelled}}#);
+      data: [<Object, JSON, numeric::legacyNumber::Source, '{"n":9007199254740993,"i":9007199254740993,"f":1.0,"optional":null,"repeated":[1.25e-3,9007199254740993]}'>];
+      assert: '{"n":9007199254740993,"i":9007199254740993,"f":1.0,"optional":null,"repeated":[0.00125,9007199254740993],"positive":true,"cancelled":0}';
+    ),
+    longMaximum
+    (
+      query: |numeric::legacyNumber::Target.all()->graphFetch(#{numeric::legacyNumber::Target{n, i, f, optional, repeated, positive, cancelled}}#)->serialize(#{numeric::legacyNumber::Target{n, i, f, optional, repeated, positive, cancelled}}#);
+      data: [<Object, JSON, numeric::legacyNumber::Source, '{"n":9223372036854775807,"i":9223372036854775807,"f":1.0,"optional":null,"repeated":[1.25e-3,9007199254740993]}'>];
+      assert: '{"n":9223372036854775807,"i":9223372036854775807,"f":1.0,"optional":null,"repeated":[0.00125,9007199254740993],"positive":true,"cancelled":0}';
+    ),
+    longMinimum
+    (
+      query: |numeric::legacyNumber::Target.all()->graphFetch(#{numeric::legacyNumber::Target{n, i, f, optional, repeated, positive, cancelled}}#)->serialize(#{numeric::legacyNumber::Target{n, i, f, optional, repeated, positive, cancelled}}#);
+      data: [<Object, JSON, numeric::legacyNumber::Source, '{"n":-9223372036854775808,"i":-9223372036854775808,"f":-1.0,"optional":null,"repeated":[1.25e-3,9007199254740993]}'>];
+      assert: '{"n":-9223372036854775808,"i":-9223372036854775808,"f":-1.0,"optional":null,"repeated":[0.00125,9007199254740993],"positive":false,"cancelled":0}';
+    ),
+    highPrecision
+    (
+      query: |numeric::legacyNumber::Target.all()->graphFetch(#{numeric::legacyNumber::Target{n, i, f, optional, repeated, positive, cancelled}}#)->serialize(#{numeric::legacyNumber::Target{n, i, f, optional, repeated, positive, cancelled}}#);
+      data: [<Object, JSON, numeric::legacyNumber::Source, '{"n":1.2345678901234567890123456789e-3,"i":1,"f":1.0,"optional":null,"repeated":[1.25e-3,9007199254740993]}'>];
+      assert: '{"n":0.0012345678901234567890123456789,"i":1,"f":1.0,"optional":null,"repeated":[0.00125,9007199254740993],"positive":true,"cancelled":0E-31}';
+    ),
+    wideNumber
+    (
+      query: |numeric::legacyNumber::Target.all()->graphFetch(#{numeric::legacyNumber::Target{n, i, f, optional, repeated, positive, cancelled}}#)->serialize(#{numeric::legacyNumber::Target{n, i, f, optional, repeated, positive, cancelled}}#);
+      data: [<Object, JSON, numeric::legacyNumber::Source, '{"n":9223372036854775808,"i":1,"f":1.0,"optional":null,"repeated":[1.25e-3,9007199254740993]}'>];
+      assert: '{"n":9223372036854775808,"i":1,"f":1.0,"optional":null,"repeated":[0.00125,9007199254740993],"positive":true,"cancelled":0}';
+    )
+  ]
+)

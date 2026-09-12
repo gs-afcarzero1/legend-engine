@@ -19,12 +19,12 @@ import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.core.filter.FilteringParserDelegate;
 import com.fasterxml.jackson.core.filter.JsonPointerBasedFilter;
-import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeType;
 import org.finos.legend.engine.plan.dependencies.domain.dataQuality.IChecked;
 import org.finos.legend.engine.plan.dependencies.domain.date.PureDate;
+import org.finos.legend.engine.plan.dependencies.json.JsonNumericSupport;
 import org.finos.legend.engine.plan.dependencies.store.inMemory.DataParsingException;
 
 import java.io.IOException;
@@ -75,18 +75,14 @@ public abstract class JsonDataReader<T>
             JsonParser baseParser = new JsonFactory().createParser(in);
             if (pathOffset != null)
             {
-                this.parser = new FilteringParserDelegate(baseParser, new JsonPointerBasedFilter(pathOffset), false, false);
+                this.parser = JsonNumericSupport.exactParser(new FilteringParserDelegate(baseParser, new JsonPointerBasedFilter(pathOffset), false, false));
             }
             else
             {
-                this.parser = baseParser;
+                this.parser = JsonNumericSupport.exactParser(baseParser);
             }
 
             this.objectMapper = new ObjectMapper();
-            if (useBigDecimalForFloats)
-            {
-                this.objectMapper.configure(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS, true);
-            }
         }
         catch (IOException e)
         {
@@ -340,7 +336,7 @@ public abstract class JsonDataReader<T>
             this.check(Collections.singletonList(JsonNodeType.valueOf("NUMBER")),
                     node.getNodeType(),
                     errorMessage);
-            return node.longValue();
+            return JsonNumericSupport.integerValue(node);
         }
         catch (IllegalArgumentException e)
         {
@@ -356,7 +352,7 @@ public abstract class JsonDataReader<T>
             this.check(Collections.singletonList(JsonNodeType.valueOf("NUMBER")),
                     node.getNodeType(),
                     errorMessage);
-            return node.doubleValue();
+            return JsonNumericSupport.floatValue(node);
         }
         catch (IllegalArgumentException e)
         {
@@ -372,9 +368,7 @@ public abstract class JsonDataReader<T>
             this.check(Arrays.asList(JsonNodeType.valueOf("STRING"), JsonNodeType.valueOf("NUMBER")),
                     node.getNodeType(),
                     errorMessage);
-            return JsonNodeType.STRING.equals(node.getNodeType())
-                    ? new BigDecimal(node.textValue())
-                    : node.decimalValue();
+            return JsonNumericSupport.decimalValue(node);
         }
         catch (IllegalArgumentException e)
         {
@@ -390,9 +384,7 @@ public abstract class JsonDataReader<T>
             this.check(Arrays.asList(JsonNodeType.valueOf("STRING"), JsonNodeType.valueOf("NUMBER")),
                     node.getNodeType(),
                     errorMessage);
-            return JsonNodeType.STRING.equals(node.getNodeType())
-                    ? new BigDecimal(node.textValue())
-                    : (node.isDouble() ? node.doubleValue() : node.longValue());
+            return JsonNumericSupport.numberValue(node);
         }
         catch (IllegalArgumentException e)
         {

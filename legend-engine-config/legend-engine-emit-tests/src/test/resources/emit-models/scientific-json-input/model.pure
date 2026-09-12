@@ -1,0 +1,162 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+###Pure
+Class numeric::input::Child
+{
+  value: Decimal[1];
+}
+Class numeric::input::Document
+{
+  d: Decimal[1];
+  n: Number[1];
+  i: Integer[1];
+  f: Float[1];
+  child: numeric::input::Child[0..1];
+  values: Decimal[*];
+  empty: Decimal[*];
+  label: String[0..1];
+}
+###Mapping
+Mapping numeric::input::Mapping ()
+###Runtime
+Runtime numeric::input::Runtime
+{
+  mappings: [numeric::input::Mapping];
+}
+###ExternalFormat
+Binding numeric::input::Binding
+{
+  contentType: 'application/json';
+  modelIncludes: [numeric::input::Document, numeric::input::Child];
+}
+###Service
+Service numeric::input::Graph
+{
+  pattern: '/numeric/scientific-json-input/Graph';
+  documentation: 'Exact numeric JSON through Graph.';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: |numeric::input::Document->internalize(numeric::input::Binding, '[{"d":1e400,"n":9007199254740993,"i":9223372036854775807,"f":1.25e-3,"child":{"value":1.2345678901234567890123456789},"values":[1e-400,-2.5E+2],"empty":[],"label":"ordinary control"},{"d":1e-400,"n":1.25e-3,"i":-9223372036854775808,"f":-2.5E+2,"child":null,"values":[],"empty":[],"label":null}]')->graphFetch(#{numeric::input::Document{d, n, i, f, child{value}, values, empty, label}}#)->serialize(#{numeric::input::Document{d, n, i, f, child{value}, values, empty, label}}#);
+    mapping: numeric::input::Mapping;
+    runtime: numeric::input::Runtime;
+  }
+  testSuites:
+  [
+    numericSuite:
+    {
+      tests:
+      [
+        preservesNumbers:
+        {
+          asserts:
+          [
+            exact: EqualToJson
+              #{ expected: ExternalFormat #{ contentType: 'application/json'; data: '{"builder":{"_type":"json"},"values":[{"d":1e400,"n":9007199254740993,"i":9223372036854775807,"f":1.25e-3,"child":{"value":1.2345678901234567890123456789},"values":[1e-400,-2.5E+2],"empty":[],"label":"ordinary control"},{"d":1e-400,"n":1.25e-3,"i":-9223372036854775808,"f":-2.5E+2,"child":null,"values":[],"empty":[],"label":null}]}'; }#; }#
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+###Service
+Service numeric::input::Externalize
+{
+  pattern: '/numeric/scientific-json-input/Externalize';
+  documentation: 'Exact numeric JSON through Externalize.';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: |numeric::input::Document->internalize(numeric::input::Binding, '[{"d":1e400,"n":9007199254740993,"i":9223372036854775807,"f":1.25e-3,"child":{"value":1.2345678901234567890123456789},"values":[1e-400,-2.5E+2],"empty":[],"label":"ordinary control"},{"d":1e-400,"n":1.25e-3,"i":-9223372036854775808,"f":-2.5E+2,"child":null,"values":[],"empty":[],"label":null}]')->graphFetch(#{numeric::input::Document{d, n, i, f, child{value}, values, empty, label}}#)->externalize(numeric::input::Binding, #{numeric::input::Document{d, n, i, f, child{value}, values, empty, label}}#);
+    mapping: numeric::input::Mapping;
+    runtime: numeric::input::Runtime;
+  }
+  testSuites:
+  [
+    numericSuite:
+    {
+      tests:
+      [
+        preservesNumbers:
+        {
+          asserts:
+          [
+            exact: EqualToJson
+              #{ expected: ExternalFormat #{ contentType: 'application/json'; data: '[{"d":1e400,"n":9007199254740993,"i":9223372036854775807,"f":1.25e-3,"child":{"value":1.2345678901234567890123456789},"values":[1e-400,-2.5E+2],"empty":[],"label":"ordinary control"},{"d":1e-400,"n":1.25e-3,"i":-9223372036854775808,"f":-2.5E+2,"child":null,"values":[],"empty":[],"label":null}]'; }#; }#
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+###Service
+Service numeric::input::MixedPath
+{
+  pattern: '/numeric/scientific-json-input/MixedPath';
+  documentation: 'Exact numeric JSON through internalization, object mapping, and externalization.';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: |numeric::input::Document->internalize(numeric::input::Binding, '[{"d":1e400,"n":9007199254740993,"i":9223372036854775807,"f":1.25e-3,"child":{"value":1.2345678901234567890123456789},"values":[1e-400,-2.5E+2],"empty":[],"label":"ordinary control"},{"d":1e-400,"n":1.25e-3,"i":-9223372036854775808,"f":-2.5E+2,"child":null,"values":[],"empty":[],"label":null}]')->graphFetch(#{numeric::input::Document{d, n, i, f, child{value}, values, empty, label}}#)->externalize(numeric::input::Binding, #{numeric::input::Document{d, n, i, f, child{value}, values, empty, label}}#);
+    mapping: numeric::input::Mapping;
+    runtime: numeric::input::Runtime;
+  }
+  testSuites:
+  [
+    numericSuite:
+    {
+      tests:
+      [
+        preservesNumbers:
+        {
+          asserts:
+          [
+            exact: EqualToJson
+              #{ expected: ExternalFormat #{ contentType: 'application/json'; data: '[{"d":1e400,"n":9007199254740993,"i":9223372036854775807,"f":1.25e-3,"child":{"value":1.2345678901234567890123456789},"values":[1e-400,-2.5E+2],"empty":[],"label":"ordinary control"},{"d":1e-400,"n":1.25e-3,"i":-9223372036854775808,"f":-2.5E+2,"child":null,"values":[],"empty":[],"label":null}]'; }#; }#
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+###Service
+Service numeric::input::CheckedDefects
+{
+  pattern: '/numeric/input/checked';
+  documentation: 'Fractional Integer and Float underflow remain checked-data defects.';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: |numeric::input::Document->internalize(numeric::input::Binding, '[{"d":"1e400","n":"1e-400","i":1.25,"f":1,"values":[],"empty":[]},{"d":1,"n":1,"i":1,"f":1e-400,"values":[],"empty":[]},{"d":1,"n":1,"i":9223372036854775808,"f":1,"values":[],"empty":[]},{"d":1,"n":1,"i":"1e2","f":1,"values":[],"empty":[]},{"d":1,"n":1,"i":1,"f":"1e2","values":[],"empty":[]},{"d":1,"n":1,"i":1,"f":1e400,"values":[],"empty":[]}]')->checked()->externalize(numeric::input::Binding, checked(#{numeric::input::Document{d, n, i, f, values, empty}}#, defaultDefectTree()));
+    mapping: numeric::input::Mapping;
+    runtime: numeric::input::Runtime;
+  }
+  testSuites:
+  [
+    checkedSuite:
+    {
+      tests:
+      [
+        invalidRows:
+        {
+          asserts: [exact: EqualToJson #{ expected: ExternalFormat #{ contentType: 'application/json'; data: '[{"defects":[{"id":null,"externalId":null,"message":"i: Expected an exactly integral signed 64-bit Integer: 1.25","enforcementLevel":"Error","ruleType":"InvalidInput","ruleDefinerPath":"numeric::input::Document","path":[]},{"id":null,"externalId":null,"message":"Invalid multiplicity for i: expected [1] found [0]","enforcementLevel":"Critical","ruleType":"ClassStructure","ruleDefinerPath":"numeric::input::Document","path":[]}],"value":null},{"defects":[{"id":null,"externalId":null,"message":"f: Value outside the finite nonzero Float range: 1E-400","enforcementLevel":"Error","ruleType":"InvalidInput","ruleDefinerPath":"numeric::input::Document","path":[]},{"id":null,"externalId":null,"message":"Invalid multiplicity for f: expected [1] found [0]","enforcementLevel":"Critical","ruleType":"ClassStructure","ruleDefinerPath":"numeric::input::Document","path":[]}],"value":null},{"defects":[{"id":null,"externalId":null,"message":"i: Expected an exactly integral signed 64-bit Integer: 9223372036854775808","enforcementLevel":"Error","ruleType":"InvalidInput","ruleDefinerPath":"numeric::input::Document","path":[]},{"id":null,"externalId":null,"message":"Invalid multiplicity for i: expected [1] found [0]","enforcementLevel":"Critical","ruleType":"ClassStructure","ruleDefinerPath":"numeric::input::Document","path":[]}],"value":null},{"defects":[{"id":null,"externalId":null,"message":"i: Unexpected node type:STRING for PURE Integer","enforcementLevel":"Error","ruleType":"InvalidInput","ruleDefinerPath":"numeric::input::Document","path":[]},{"id":null,"externalId":null,"message":"Invalid multiplicity for i: expected [1] found [0]","enforcementLevel":"Critical","ruleType":"ClassStructure","ruleDefinerPath":"numeric::input::Document","path":[]}],"value":null},{"defects":[{"id":null,"externalId":null,"message":"f: Unexpected node type:STRING for PURE Float","enforcementLevel":"Error","ruleType":"InvalidInput","ruleDefinerPath":"numeric::input::Document","path":[]},{"id":null,"externalId":null,"message":"Invalid multiplicity for f: expected [1] found [0]","enforcementLevel":"Critical","ruleType":"ClassStructure","ruleDefinerPath":"numeric::input::Document","path":[]}],"value":null},{"defects":[{"id":null,"externalId":null,"message":"f: Value outside the finite nonzero Float range: 1E+400","enforcementLevel":"Error","ruleType":"InvalidInput","ruleDefinerPath":"numeric::input::Document","path":[]},{"id":null,"externalId":null,"message":"Invalid multiplicity for f: expected [1] found [0]","enforcementLevel":"Critical","ruleType":"ClassStructure","ruleDefinerPath":"numeric::input::Document","path":[]}],"value":null}]'; }#; }#]
+        }
+      ]
+    }
+  ]
+}

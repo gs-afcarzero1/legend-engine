@@ -1,0 +1,17 @@
+name: scientific-json-input
+title: "Scientific JSON binding input"
+description: Executable services internalize nested JSON, serialize graph and external-format results, and consume serialized results again.
+modelSources:
+  model:
+    root: scientific-json-input
+    files:
+      - model.pure
+features:
+  - execution:test-data
+  - scaffolding:class
+stores: []
+complexity: advanced
+tags:
+  - scientific-notation
+  - service
+  - json

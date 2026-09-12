@@ -1,0 +1,18 @@
+name: m2m-scientific-input-legacy
+title: "Scientific JSON input: legacy"
+description: Executable numeric identity, arithmetic and comparison tests with optional and repeated values, exponents and precision boundaries.
+modelSources:
+  model:
+    root: m2m-scientific-input-legacy
+    files:
+      - model.pure
+features:
+  - execution:test-data
+  - mapping:m2m-transform
+  - mapping:mapping
+  - scaffolding:class
+stores: []
+complexity: intermediate
+tags:
+  - m2m
+  - scientific-notation
