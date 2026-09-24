@@ -1,0 +1,28 @@
+name: service-m2m-lambda-shadows-parameter
+title: "M2M Service Whose Lambda Parameters Reuse the Function Parameter Name"
+description: |
+  An M2M service whose mapping calls user functions that pass a lambda (to
+  `match` and to `map`) whose parameter has the same name as the enclosing
+  function's own parameter. The function is emitted as a Java method whose
+  parameters are in scope for every lambda in its body, so the generator must
+  rename the lambda parameter or the plan does not compile. A qualified
+  property on the source class does the same with its own parameter.
+
+modelSources:
+  model:
+    root: service-m2m-lambda-shadows-parameter
+    files:
+      - model.pure
+
+features:
+  - execution:plan-generation
+  - execution:service
+  - execution:service-test
+  - execution:test-data
+  - mapping:mapping
+stores: []
+complexity: basic
+tags:
+  - m2m
+  - java-generation
+  - service-test
