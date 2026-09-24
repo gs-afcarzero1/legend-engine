@@ -1,0 +1,489 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+Class meta::pure::lineage::scanProperties::test::constructorOrigins::Root
+{
+  primary: Leaf[1];
+  secondary: Leaf[1];
+  elements: Leaf[*];
+  choose: Boolean[1];
+  index: Integer[1];
+  end: Integer[1];
+  extra: String[1];
+}
+Class meta::pure::lineage::scanProperties::test::constructorOrigins::Leaf
+{
+  id: String[1];
+  label: String[1];
+  rank: Integer[1];
+  children: Leaf[*];
+  decorated(prefix:String[1]) { $prefix + $this.label; }: String[1];
+}
+Class meta::pure::lineage::scanProperties::test::constructorOrigins::Detail { value: String[1]; }
+Class meta::pure::lineage::scanProperties::test::constructorOrigins::Box { ft: Leaf[1]; owner: Root[0..1]; stamp: String[0..1]; }
+Class meta::pure::lineage::scanProperties::test::constructorOrigins::DerivedBox extends Box { extraLeaf: Leaf[0..1]; }
+Class meta::pure::lineage::scanProperties::test::constructorOrigins::Outer { inner: Box[1]; }
+Class meta::pure::lineage::scanProperties::test::constructorOrigins::TwoSlots { left: Leaf[1]; right: Leaf[1]; }
+Class meta::pure::lineage::scanProperties::test::constructorOrigins::Target { items: Item[*]; }
+Class meta::pure::lineage::scanProperties::test::constructorOrigins::Item { id: String[1]; label: String[1]; }
+Class meta::pure::lineage::scanProperties::test::constructorOrigins::ScalarTarget { value: String[*]; }
+function meta::pure::lineage::scanProperties::test::constructorOrigins::box(x:Leaf[1]):Box[1] { ^Box(ft=$x); }
+function meta::pure::lineage::scanProperties::test::constructorOrigins::delegate(x:Leaf[1]):Box[1] { box($x); }
+function meta::pure::lineage::scanProperties::test::constructorOrigins::choose(x:Root[1]):Leaf[1] { if($x.choose, |$x.primary, |$x.secondary); }
+function meta::pure::lineage::scanProperties::test::constructorOrigins::read(x:Box[1]):String[1] { $x.ft.id; }
+function meta::pure::lineage::scanProperties::test::constructorOrigins::lastOnly(x:Root[1]):Leaf[1] { choose($x); $x.secondary; }
+function meta::pure::lineage::scanProperties::test::constructorOrigins::nested(x:Root[1]):Outer[1] { ^Outer(inner=^Box(ft=$x.primary)); }
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testdirect():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingdirect, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {primary {id,label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingdirect
+(
+  *Target: Pure { ~src Root items[item]: ^Box(ft=$src.primary) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testhelper():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappinghelper, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {primary {id,label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappinghelper
+(
+  *Target: Pure { ~src Root items[item]: box($src.primary) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testdelegated():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingdelegated, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {secondary {id,label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingdelegated
+(
+  *Target: Pure { ~src Root items[item]: delegate($src.secondary) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testmap():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingmap, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {elements {id,label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingmap
+(
+  *Target: Pure { ~src Root items[item]: $src.elements->map(e | ^Box(ft=$e)) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testmapHelper():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingmapHelper, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {elements {id,label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingmapHelper
+(
+  *Target: Pure { ~src Root items[item]: $src.elements->map(e | box($e)) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testcapturedRoot():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingcapturedRoot, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {elements {id,label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingcapturedRoot
+(
+  *Target: Pure { ~src Root items[item]: $src.elements->map(e | ^Box(ft=$e,owner=$src)) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testcapturedOther():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingcapturedOther, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {elements,primary {id,label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingcapturedOther
+(
+  *Target: Pure { ~src Root items[item]: $src.elements->map(e | ^Box(ft=$src.primary)) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testeagerUnusedAssignment():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingeagerUnusedAssignment, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {primary {id,label},extra}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingeagerUnusedAssignment
+(
+  *Target: Pure { ~src Root items[item]: ^Box(ft=$src.primary,stamp=$src.extra) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testconditionalConstructor():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingconditionalConstructor, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {choose,primary {id,label},secondary {id,label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingconditionalConstructor
+(
+  *Target: Pure { ~src Root items[item]: if($src.choose, |^Box(ft=$src.primary), |^Box(ft=$src.secondary)) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testreversedConditional():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingreversedConditional, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {choose,primary {id,label},secondary {id,label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingreversedConditional
+(
+  *Target: Pure { ~src Root items[item]: if($src.choose, |^Box(ft=$src.secondary), |^Box(ft=$src.primary)) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testnilElse():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingnilElse, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {choose,primary {id,label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingnilElse
+(
+  *Target: Pure { ~src Root items[item]: if($src.choose, |^Box(ft=$src.primary), |[]) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testnilThen():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingnilThen, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {choose,secondary {id,label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingnilThen
+(
+  *Target: Pure { ~src Root items[item]: if($src.choose, |[], |^Box(ft=$src.secondary)) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testcastBox():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingcastBox, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {primary {id,label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingcastBox
+(
+  *Target: Pure { ~src Root items[item]: ^DerivedBox(ft=$src.primary)->cast(@Box) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testnestedBox():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingnestedBox, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {primary {id,label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingnestedBox
+(
+  *Target: Pure { ~src Root items[item]: nested($src).inner }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testfilterBoxes():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingfilterBoxes, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {elements {id,label,rank}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingfilterBoxes
+(
+  *Target: Pure { ~src Root items[item]: $src.elements->map(e | ^Box(ft=$e))->filter(b | $b.ft.rank > 0) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testsortBoxes():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingsortBoxes, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {elements {id,label,rank}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingsortBoxes
+(
+  *Target: Pure { ~src Root items[item]: $src.elements->map(e | ^Box(ft=$e))->sortBy(b | $b.ft.rank) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testcomparatorBoxes():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingcomparatorBoxes, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {elements {id,label,rank}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingcomparatorBoxes
+(
+  *Target: Pure { ~src Root items[item]: $src.elements->map(e | ^Box(ft=$e))->sort({a,b | $a.ft.rank - $b.ft.rank}) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testdistinctBoxes():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingdistinctBoxes, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {elements {id,label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingdistinctBoxes
+(
+  *Target: Pure { ~src Root items[item]: $src.elements->map(e | ^Box(ft=$e))->removeDuplicatesBy(b | $b.ft.id) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testfirstBox():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingfirstBox, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {elements {id,label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingfirstBox
+(
+  *Target: Pure { ~src Root items[item]: $src.elements->map(e | ^Box(ft=$e))->first() }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testmatchConstructor():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingmatchConstructor, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {primary {id,label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingmatchConstructor
+(
+  *Target: Pure { ~src Root items[item]: $src.primary->match([x:Leaf[1] | ^Box(ft=$x), x:Any[*] | []]) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testtwoSlots():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingtwoSlots, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {primary {id},secondary {label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingtwoSlots
+(
+  *Target: Pure { ~src Root items[item]: ^TwoSlots(left=$src.primary,right=$src.secondary) }
+  Item[item]: Pure { ~src TwoSlots id: $src.left.id, label: $src.right.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testqualifiedProperty():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingqualifiedProperty, meta::pure::extension::defaultExtensions());
+  assertEquals('Root\n(\n  primary [requires: decorated]\n  (\n    id\n    label\n  )\n)', $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingqualifiedProperty
+(
+  *Target: Pure { ~src Root items[item]: ^Box(ft=$src.primary) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, label: $src.ft.decorated('prefix:') }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testlastExpression():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {items {id,label}}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappinglastExpression, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {choose,primary,secondary {id,label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappinglastExpression
+(
+  *Target: Pure { ~src Root items[item]: lastOnly($src) }
+  Item[item]: Pure { ~src Leaf id: $src.id, label: $src.label }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testnestedScalar():Boolean[1]
+{
+  let actual = calculateSourceTree(#{ScalarTarget {value}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingnestedScalar, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {primary {id}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingnestedScalar
+(
+  *ScalarTarget: Pure { ~src Root value: ^Outer(inner=^Box(ft=$src.primary)).inner.ft.id }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testconstructorArgument():Boolean[1]
+{
+  let actual = calculateSourceTree(#{ScalarTarget {value}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingconstructorArgument, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {secondary {id}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingconstructorArgument
+(
+  *ScalarTarget: Pure { ~src Root value: read(^Box(ft=$src.secondary)) }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testscalarKey():Boolean[1]
+{
+  let actual = calculateSourceTree(#{ScalarTarget {value}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingscalarKey, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {extra}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingscalarKey
+(
+  *ScalarTarget: Pure { ~src Root value: ^Detail(value=$src.extra).value }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testconstant():Boolean[1]
+{
+  let actual = calculateSourceTree(#{ScalarTarget {value}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingconstant, meta::pure::extension::defaultExtensions());
+  assertEquals(^RootGraphFetchTree<Any>(class=Root)->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingconstant
+(
+  *ScalarTarget: Pure { ~src Root value: ^Detail(value='constant').value }
+)
+###Pure
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::constructorOrigins::testtwoSlotScalar():Boolean[1]
+{
+  let actual = calculateSourceTree(#{ScalarTarget {value}}#, meta::pure::lineage::scanProperties::test::constructorOrigins::mappingtwoSlotScalar, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Root {primary,secondary {id}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+###Mapping
+import meta::pure::lineage::scanProperties::test::constructorOrigins::*;
+Mapping meta::pure::lineage::scanProperties::test::constructorOrigins::mappingtwoSlotScalar
+(
+  *ScalarTarget: Pure { ~src Root value: ^TwoSlots(left=$src.primary,right=$src.secondary).right.id }
+)
