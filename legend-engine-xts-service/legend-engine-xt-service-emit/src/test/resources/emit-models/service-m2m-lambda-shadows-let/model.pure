@@ -1,0 +1,139 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+
+###Pure
+Class shadowLet::model::Source
+{
+  id: String[1];
+  kind: String[1];
+  tags: String[*];
+}
+
+Class shadowLet::model::Target
+{
+  id: String[1];
+  matchShadow: String[1];
+  mapShadow: String[*];
+  initializerShadow: String[*];
+}
+
+function shadowLet::model::matchShadow(s: shadowLet::model::Source[1]): String[1]
+{
+  let x = 'outer-';
+  $x + $s.kind->match([x: String[1] | 'inner-' + $x]);
+}
+
+function shadowLet::model::mapShadow(s: shadowLet::model::Source[1]): String[*]
+{
+  let t = '!';
+  $s.tags->map(t | $t + 'x')->map(v | $v + $t);
+}
+
+function shadowLet::model::initializerShadow(s: shadowLet::model::Source[1]): String[*]
+{
+  let t = $s.tags->map(t | $t + 'y');
+  $t;
+}
+
+
+###Mapping
+Mapping shadowLet::mapping::SourceToTarget
+(
+  *shadowLet::model::Target: Pure
+  {
+    ~src shadowLet::model::Source
+    id: $src.id,
+    matchShadow: $src->shadowLet::model::matchShadow(),
+    mapShadow: $src->shadowLet::model::mapShadow(),
+    initializerShadow: $src->shadowLet::model::initializerShadow()
+  }
+)
+
+
+###Runtime
+Runtime shadowLet::runtime::SourceRuntime
+{
+  mappings:
+  [
+    shadowLet::mapping::SourceToTarget
+  ];
+  connections:
+  [
+    ModelStore:
+    [
+      json:
+      #{
+        JsonModelConnection
+        {
+          class: shadowLet::model::Source;
+          url: 'executor:default';
+        }
+      }#
+    ]
+  ];
+}
+
+
+###Service
+Service shadowLet::service::ShadowService
+{
+  pattern: '/shadowLet';
+  documentation: 'M2M Service Whose Lambda Parameters Reuse a let Name';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: |shadowLet::model::Target.all()->graphFetch(#{shadowLet::model::Target{id,matchShadow,mapShadow,initializerShadow}}#)->serialize(#{shadowLet::model::Target{id,matchShadow,mapShadow,initializerShadow}}#);
+    mapping: shadowLet::mapping::SourceToTarget;
+    runtime: shadowLet::runtime::SourceRuntime;
+  }
+  testSuites:
+  [
+    shadowing:
+    {
+      data:
+      [
+        connections:
+        [
+          json:
+            ExternalFormat
+            #{
+              contentType: 'application/json';
+              data: '[{"id":"r1","kind":"a","tags":["t1","t2"]},{"id":"r2","kind":"b","tags":[]}]';
+            }#
+        ]
+      ]
+      tests:
+      [
+        generatedJavaCompiles:
+        {
+          serializationFormat: PURE;
+          asserts:
+          [
+            valuesMatch:
+              EqualToJson
+              #{
+                expected:
+                  ExternalFormat
+                  #{
+                    contentType: 'application/json';
+                    data: '[{"id":"r1","matchShadow":"outer-inner-a","mapShadow":["t1x!","t2x!"],"initializerShadow":["t1y","t2y"]},{"id":"r2","matchShadow":"outer-inner-b","mapShadow":[],"initializerShadow":[]}]';
+                  }#;
+              }#
+          ]
+        }
+      ]
+    }
+  ]
+}

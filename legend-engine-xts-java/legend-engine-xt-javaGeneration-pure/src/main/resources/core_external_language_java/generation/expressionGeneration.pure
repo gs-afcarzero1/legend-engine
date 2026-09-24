@@ -58,9 +58,18 @@ function <<access.private>> meta::external::language::java::transform::statement
 function <<access.private>> meta::external::language::java::transform::statementsForBlock(vses:ValueSpecification[*], conventions: Conventions[1], returnType:meta::external::language::java::metamodel::Type[0..1], debug: DebugContext[1]):Code[*]
 {
    let generated = $vses->toIndexed()
-      			->map(z| print(if($debug.debug,|$debug.space+'statementsForBlock - processing expression '+$z.first->toString()+'\n',|''));
-               			let x = $z.second;
-               			$x->generateJavaInternal($conventions, $debug););
+      ->fold({z, acc |
+                 print(if($debug.debug,|$debug.space+'statementsForBlock - processing expression '+$z.first->toString()+'\n',|''));
+                 let x    = $z.second;
+                 let next = if($x->meta::pure::router::utils::isLetFunction(),
+                               | $acc.second->addVariablesInScope($acc.second->identifier($x->cast(@FunctionExpression).parametersValues->at(0)->cast(@InstanceValue).values->toOne()->cast(@String))),
+                               | $acc.second
+                            );
+                 let code = $x->generateJavaInternal($next, $debug);
+                 pair(list($acc.first.values->concatenate($code)), $next);
+              },
+              pair(list([]->cast(@Code)), $conventions)
+      ).first.values;
    $generated->match([
          {c0: Code[0] | []},
          {cs: Code[*] |

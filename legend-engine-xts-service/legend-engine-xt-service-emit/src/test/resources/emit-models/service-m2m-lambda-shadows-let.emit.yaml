@@ -1,0 +1,29 @@
+name: service-m2m-lambda-shadows-let
+title: "M2M Service Whose Lambda Parameters Reuse a let Name"
+description: |
+  An M2M service whose mapping calls user functions that bind a value with `let`
+  and then pass a lambda (to `match` and to `map`) whose parameter reuses that
+  name. Pure scopes the lambda parameter to the lambda, but Java forbids a lambda
+  parameter from redeclaring a local, so the generator must rename it. Each
+  function also reads the outer `let` after the lambda to check that references
+  still resolve to the right variable, and one reuses the name inside the
+  `let`'s own initializer, where Java already has the local in scope.
+
+modelSources:
+  model:
+    root: service-m2m-lambda-shadows-let
+    files:
+      - model.pure
+
+features:
+  - execution:plan-generation
+  - execution:service
+  - execution:service-test
+  - execution:test-data
+  - mapping:mapping
+stores: []
+complexity: basic
+tags:
+  - m2m
+  - java-generation
+  - service-test

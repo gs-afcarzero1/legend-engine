@@ -1174,6 +1174,11 @@ function meta::external::language::java::transform::addProvidedVariablesRenamed(
    );
 }
 
+function meta::external::language::java::transform::addVariablesInScope(conventions:Conventions[1], names:String[*]): Conventions[1]
+{
+   ^$conventions(variablesInScope = $conventions.variablesInScope->concatenate($names)->removeDuplicates());
+}
+
 function <<access.private>> meta::external::language::java::transform::uniqueVariableName(base:String[1], taken:String[*]):String[1]
 {
    if(!$taken->contains($base),
