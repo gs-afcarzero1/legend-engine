@@ -755,16 +755,18 @@ function <<access.private>> meta::pure::graphFetch::getSubTreeNodesAtPath(srcNod
 
 function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeForExpression(srcNode:GraphFetchTree[1], exprThisClass:Class<Any>[1], expression:ValueSpecification[1]): GraphFetchTree[1]
 {
-   let propertyPath = $expression->evaluateAndDeactivate()->scanProperties(^List<PropertyPathNode>(), [], [], noDebug());
+   // Scan classes as property transforms do, so a cast or match branch on $src keeps its subtype.
+   let propertyPath = $expression->evaluateAndDeactivate()->scanProperties(noDebug(), ^ScanConfig(scanClasses=true, explodeMilestonedProperties=true));
    $srcNode->enrichSourceTreeNodeForPropertyPath($exprThisClass, $propertyPath);
 }
 
 function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeForPropertyPath(srcNode:GraphFetchTree[1], baseClass:Class<Any>[1], propertyPath:ScanPropertiesState[0..1]): GraphFetchTree[1]
 {
    let inlinedPropertyTree        = $propertyPath.result->buildPropertyTree()->inlineQualifiedPropertyNodes();
-   let inlinedPropertyGraphTrees  = $inlinedPropertyTree->propertyTreeToGraphFetchTree($baseClass).subTrees->cast(@PropertyGraphFetchTree);
+   let inlinedGraphTree           = $inlinedPropertyTree->propertyTreeToGraphFetchTree($baseClass)->removeDummyProperties()->toOne();
+   let inlinedPropertyGraphTrees  = $inlinedGraphTree.subTrees->cast(@PropertyGraphFetchTree);
    let srcNodeProperties          = $inlinedPropertyGraphTrees->filter(p | $baseClass->getAllTypeGeneralisations()->contains($p.property->meta::pure::functions::meta::ownerClass()));
-   let withFoundProperties        = $srcNode->addSubTrees($srcNodeProperties);
+   let withFoundProperties        = $srcNode->addSubTrees($srcNodeProperties)->addSubTypeTrees($inlinedGraphTree.subTypeTrees);
    let withQPsRecorded            = $propertyPath.result->filter(path| $path.values->exists(x| $x.property->instanceOf(QualifiedProperty)))
                                                  ->fold({path, gt| $gt->recordQualifiedProperties($path)}, $withFoundProperties);
 }
@@ -796,6 +798,13 @@ function meta::pure::graphFetch::enrichSourceTreeNode(srcNode:GraphFetchTree[1],
    pair($subTreesRefined, $subTrees.second);
 }
 
+// A property node states its subtypes as sibling nodes, prop->subType(@S), rather than as subTypeTrees.
+function <<access.private>> meta::pure::graphFetch::subTypeTreesAsSubTypedProperties(pgft:PropertyGraphFetchTree[1]): PropertyGraphFetchTree[*]
+{
+   let base = ^$pgft(subTypeTrees = []);
+   $base->concatenate($pgft.subTypeTrees->map(st | ^$base(subType = $st.subTypeClass, subTrees = $base.subTrees->concatenate($st.subTrees))));
+}
+
 function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeAtPath(srcNode:GraphFetchTree[1], path:List<PropertyPathNode>[1], mapping:Mapping[1], setImplementation: PureInstanceSetImplementation[1], tgtPgft:PropertyGraphFetchTree[1], extensions:meta::pure::extension::Extension[*], visitedFunctions:Map<String,ScanPropertiesState>[1]): Pair<GraphFetchTree, Map<String, ScanPropertiesState>>[1]
 {
    $path.values->match(
@@ -808,7 +817,7 @@ function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeAtPath(s
                                     let requiredSubTrees = $srcNode.subTrees->cast(@PropertyGraphFetchTree)->filter(st |$st.property == $head.property);
                                     $requiredSubTrees->fold({st, res
                                                             | let enrichedSubTree = $st->enrichSourceTreeNode($mapping, $setImplementation, $tgtPgft, $extensions, $res.second);
-                                                              let enrichedSourceNode = $res.first->addSubTree($enrichedSubTree.first->cast(@PropertyGraphFetchTree));
+                                                              let enrichedSourceNode = $res.first->addSubTrees($enrichedSubTree.first->cast(@PropertyGraphFetchTree)->subTypeTreesAsSubTypedProperties());
                                                               pair($enrichedSourceNode, $enrichedSubTree.second);
                                                             },
                                                             pair($srcNode, $visitedFunctions)
