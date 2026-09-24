@@ -59,6 +59,12 @@ Class meta::pure::lineage::scanProperties::DummyPropertyPathNode extends Propert
   <<equality.Key>> id : Integer[1];
 }
 
+// The value of ^Class(k=v, ...): each slot keeps the path its value came from, so reading .k continues from there.
+Class meta::pure::lineage::scanProperties::ConstructedPropertyPathNode extends PropertyPathNode
+{
+  <<equality.Key>> slots : Pair<String, List<PropertyPathNode>>[*];
+}
+
 Class meta::pure::lineage::scanProperties::propertyTree::PropertyPathTree
 {
    display : String[1];
@@ -213,8 +219,13 @@ function meta::pure::lineage::scanProperties::scanProperties(vs:ValueSpecificati
 }
 
 function meta::pure::lineage::scanProperties::scanProperties(vs:ValueSpecification[1], debug:DebugContext[1], config:ScanConfig[1], visitedFunctions:Map<String,ScanPropertiesState>[1]):ScanPropertiesState[0..1]
-{ 
-   internal_scanProperties($vs, [], noVars(), $config, $visitedFunctions, ^$debug(space=$debug.space+'    '));
+{
+   scanProperties($vs, $debug, $config, $visitedFunctions, noVars());
+}
+
+function meta::pure::lineage::scanProperties::scanProperties(vs:ValueSpecification[1], debug:DebugContext[1], config:ScanConfig[1], visitedFunctions:Map<String,ScanPropertiesState>[1], vars:Map<String,List<PropertyPathNode>>[1]):ScanPropertiesState[0..1]
+{
+   internal_scanProperties($vs, [], $vars, $config, $visitedFunctions, ^$debug(space=$debug.space+'    '));
 }
 
 function <<access.private>> meta::pure::lineage::scanProperties::internal_scanProperties(vs:ValueSpecification[1], processed:Function<Any>[*], vars:Map<String,List<PropertyPathNode>>[1], config:ScanConfig[1], visitedFunctions:Map<String,ScanPropertiesState>[1], debug: meta::pure::tools::DebugContext[1]):ScanPropertiesState[0..1]
@@ -234,7 +245,7 @@ function <<access.private>> meta::pure::lineage::scanProperties::internal_scanPr
                                                                                            let nlist = $p->processProperty($srcClass, $leftSide.current->orElseEmptyPath(), true);
                                                                                            makeScanPropertiesState(
                                                                                               $nlist->at(0),
-                                                                                              $nlist->concatenate($leftSide.result->filter(x | $x.values->isNotEmpty())),
+                                                                                              $nlist->concatenate($leftSide.result)->filter(x | $x.values->isNotEmpty()),
                                                                                               $leftSide->getVisitedFunctions()
                                                                                            );
                                                                                         },
@@ -293,6 +304,15 @@ function <<access.private>> meta::pure::lineage::scanProperties::internal_scanPr
                                                                                   $predResult.result->concatenate($keyFuncResult.result),
                                                                                   $predResult.visitedFunctions
                                                                                );
+                                                                            },
+                                                                            |
+                                                                         if($fe.func == new_Class_1__String_1__KeyExpression_MANY__T_1_ && $fe.genericType.rawType->toOne()->instanceOf(Class),
+                                                                            {|
+                                                                               let keys   = $params->at(2)->cast(@InstanceValue).values->evaluateAndDeactivate()->cast(@KeyExpression);
+                                                                               let values = $keys->map(k | $k.expression->internal_scanProperties($processed, $vars, $config, $visitedFunctions, ^$debug(space=$debug.space+'    '))->orElseEmptyPath());
+                                                                               let slots  = $keys->zip($values)->map(kv | pair($kv.first.key.values->toOne()->cast(@String), $kv.second.current));
+                                                                               let value  = ^ConstructedPropertyPathNode(class=$fe.genericType.rawType->toOne()->cast(@Class<Any>), property=getDummyProperty(), slots=$slots);
+                                                                               makeScanPropertiesState(list($value), $values.result, $visitedFunctions);
                                                                             },
                                                                             |
                                                                          if($fe.func.name == 'letFunction_String_1__T_m__T_m_',
@@ -433,7 +453,7 @@ function <<access.private>> meta::pure::lineage::scanProperties::internal_scanPr
                                                                                let func = $fe.func->filter(f| $f->shouldBeProcessed($processed))->first();
                                                                                $func->processFunction($pp, $vars, $processed,  $config, $visitedFunctions, ^$debug(space=$debug.space+'    '));
                                                                             }
-                                                                         ))))))))))));
+                                                                         )))))))))))));
                                                           ]);,
                i:InstanceValue[1] | print(if($debug.debug,|$debug.space+'Processing Instance\n',|''));
                                     let instanceRes = $i.values->evaluateAndDeactivate()->map( v |
@@ -462,7 +482,7 @@ function <<access.private>> meta::pure::lineage::scanProperties::internal_scanPr
                                     );,
                ve:VariableExpression[1] | print(if($debug.debug,|$debug.space+'Processing Variable '+$ve.name+'\n',|''));
                                           let v = $vars->get($ve.name)->orElseEmptyPath();
-                                          makeScanPropertiesState($v, $v, $visitedFunctions);,
+                                          makeScanPropertiesState($v, $v->filter(p | !$p.values->last()->exists(n | $n->instanceOf(ConstructedPropertyPathNode))), $visitedFunctions);,
                ervs:ExtendedRoutedValueSpecification[1] | print(if($debug.debug,|$debug.space+'Bypassing ExtendedRoutedValueSpecification\n',|''));
                                                           $ervs.value->internal_scanProperties($processed, $vars, $config,$visitedFunctions, ^$debug(space=$debug.space+'    '));,
                frvs:FunctionRoutedValueSpecification[1] | print(if($debug.debug,|$debug.space+'Bypassing FunctionRoutedValueSpecification\n',|''));
@@ -558,25 +578,24 @@ function <<access.private>> meta::pure::lineage::scanProperties::processFunction
 
 }
 
-function <<access.private>> meta::pure::lineage::scanProperties::replaceDummyNodesWithParamsPropertyPathNodes(propertyPathNode: PropertyPathNode[0..1], paramPaths:ScanPropertiesState[*]):PropertyPathNode[*]
+// Replaces a leading parameter placeholder with the argument's path, including inside constructed slots.
+// Re-appending the rest lets a step such as .ft read the slot of an argument built with ^Box(ft=...).
+function <<access.private>> meta::pure::lineage::scanProperties::resolveDummyNodes(path:List<PropertyPathNode>[1], paramPaths:ScanPropertiesState[*]):List<PropertyPathNode>[1]
 {
-  if(!$propertyPathNode->isEmpty() && $propertyPathNode->toOne()->instanceOf(DummyPropertyPathNode),
-  |
-    let paramIndex = $propertyPathNode->toOne()->cast(@DummyPropertyPathNode).id;
-    $paramPaths->at($paramIndex).current.values;,
-  | $propertyPathNode;
-  );
+   let head = $path.values->first()->map(n | $n->match([
+      d:DummyPropertyPathNode[1]       | $paramPaths->at($d.id).current.values,
+      c:ConstructedPropertyPathNode[1] | ^$c(slots=$c.slots->map(s | pair($s.first, $s.second->resolveDummyNodes($paramPaths)))),
+      p:PropertyPathNode[1]            | $p
+   ]));
+   $path.values->tail()->fold({step, acc | list($acc.values->appendStep($step))}, list($head));
 }
 
 function <<access.private>> meta::pure::lineage::scanProperties::resolveDummyNodes(dummyRes:ScanPropertiesState[1], paramPaths:ScanPropertiesState[*]):ScanPropertiesState[1]
 {
-    let currentPropertyPathNodes = $dummyRes.current.values;
-    let current = list(replaceDummyNodesWithParamsPropertyPathNodes($currentPropertyPathNodes->first(), $paramPaths)->concatenate($currentPropertyPathNodes->slice(1, $currentPropertyPathNodes->size())));
-    let result = $dummyRes.result->map(list | list(replaceDummyNodesWithParamsPropertyPathNodes($list.values->first(), $paramPaths)->concatenate($list.values->slice(1,$list.values->size()))););
+    let current = $dummyRes.current->resolveDummyNodes($paramPaths);
+    let result = $dummyRes.result->map(path | $path->resolveDummyNodes($paramPaths))->removeEmptyPaths();
     let conditionalTerminalPaths = $dummyRes.conditionalTerminalPaths->map(terminals |
-      ^ConditionalTerminalPaths(paths=$terminals.paths->map(path |
-        list(replaceDummyNodesWithParamsPropertyPathNodes($path.values->first(), $paramPaths)->concatenate($path.values->slice(1, $path.values->size())))
-      ))
+      ^ConditionalTerminalPaths(paths=$terminals.paths->map(path | $path->resolveDummyNodes($paramPaths)))
     );
     makeScanPropertiesState($current, $conditionalTerminalPaths, $result, ^Map<String,ScanPropertiesState>());
 }
@@ -634,7 +653,16 @@ function <<access.private>> meta::pure::lineage::scanProperties::processProperty
                         class = $srcClass,
                         property=$p
                   );
-   if($append,|^$list(values = $list.values->concatenate($property)),|^$list(values = $property->concatenate($list.values)));
+   if($append,|^$list(values = $list.values->appendStep($property)),|^$list(values = $property->concatenate($list.values)));
+}
+
+// Reading a property of a constructed value continues from the path of the value assigned to it.
+function <<access.private>> meta::pure::lineage::scanProperties::appendStep(path:PropertyPathNode[*], step:PropertyPathNode[1]):PropertyPathNode[*]
+{
+   $path->last()->filter(n | $n->instanceOf(ConstructedPropertyPathNode) && $step.property->instanceOf(Property))->cast(@ConstructedPropertyPathNode)->match([
+      c:ConstructedPropertyPathNode[1] | $c.slots->filter(s | $s.first == $step.property.name)->first().second.values,
+      n:ConstructedPropertyPathNode[0] | $path->concatenate($step)
+   ]);
 }
 
 function <<access.private>> meta::pure::lineage::scanProperties::processQualifier(q:QualifiedProperty<Any>[1], srcClass:Class<Any>[1], parameters:ValueSpecification[*], list:List<PropertyPathNode>[1], processed:Function<Any>[*], vars:Map<String,List<PropertyPathNode>>[1], append:Boolean[1], config:ScanConfig[1], visitedFunctions:Map<String,ScanPropertiesState>[1], debug:DebugContext[1]):List<PropertyPathNode>[1]
