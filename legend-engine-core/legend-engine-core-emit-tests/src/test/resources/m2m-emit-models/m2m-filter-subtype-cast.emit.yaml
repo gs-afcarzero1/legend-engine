@@ -1,12 +1,13 @@
 name: m2m-filter-subtype-cast
-title: "M2M Class Filters That Cast the Source to a Subtype"
+title: "M2M Class Mappings That Read Subtype Properties Through $src"
 description: |
-  A model-to-model mapping whose class filters read a property that only a subtype
-  of the ~src class declares, by casting $src: the root mapping keeps only books
-  whose FX desk matches, and the child mapping keeps only trades whose currency
-  pair matches. The source tree must request those subtype properties, or the
-  generated Java has no getter for them. The test executes the mapping over
-  ModelStore data containing matching and non-matching books and trades.
+  A model-to-model mapping whose class mappings read properties that only a
+  subtype of their ~src class declares, by casting $src: the root filter keeps
+  only books whose FX desk matches, and the child trade mapping both filters on
+  and outputs the currency pair of each trade. The source tree must request those
+  subtype properties at the root and under the trades property, or the generated
+  Java has no getter for them. The test executes the mapping over ModelStore data
+  containing matching and non-matching books and trades.
 
 modelSources:
   model:

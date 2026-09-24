@@ -43,6 +43,7 @@ Class demo::m2m::filterCast::target::Book
 Class demo::m2m::filterCast::target::Trade
 {
   id: String[1];
+  pair: String[1];
 }
 
 
@@ -60,15 +61,16 @@ Mapping demo::m2m::filterCast::BookMapping
   demo::m2m::filterCast::target::Trade[eur]: Pure
   {
     ~src demo::m2m::filterCast::source::S_Trade
-    ~filter $src->cast(@demo::m2m::filterCast::source::S_FxTrade).pair == 'EURUSD'
-    id: $src.id
+    ~filter $src->cast(@demo::m2m::filterCast::source::S_FxTrade).pair->startsWith('EUR')
+    id: $src.id,
+    pair: $src->cast(@demo::m2m::filterCast::source::S_FxTrade).pair
   }
 
   testSuites:
   [
     filterSuite:
     {
-      function: |demo::m2m::filterCast::target::Book.all()->graphFetch(#{demo::m2m::filterCast::target::Book{name, eurTrades{id}}}#)->serialize(#{demo::m2m::filterCast::target::Book{name, eurTrades{id}}}#);
+      function: |demo::m2m::filterCast::target::Book.all()->graphFetch(#{demo::m2m::filterCast::target::Book{name, eurTrades{id,pair}}}#)->serialize(#{demo::m2m::filterCast::target::Book{name, eurTrades{id,pair}}}#);
       tests:
       [
         filtersBySubtypeProperties:
@@ -81,7 +83,7 @@ Mapping demo::m2m::filterCast::BookMapping
                   ExternalFormat
                   #{
                     contentType: 'application/json';
-                    data: '[{"@type":"demo::m2m::filterCast::source::S_FxBook","name":"fx-book","desk":"FX","trades":[{"@type":"demo::m2m::filterCast::source::S_FxTrade","id":"t1","pair":"EURUSD"},{"@type":"demo::m2m::filterCast::source::S_FxTrade","id":"t2","pair":"GBPUSD"}]},{"@type":"demo::m2m::filterCast::source::S_FxBook","name":"rates-book","desk":"RATES","trades":[]}]';
+                    data: '[{"@type":"demo::m2m::filterCast::source::S_FxBook","name":"fx-book","desk":"FX","trades":[{"@type":"demo::m2m::filterCast::source::S_FxTrade","id":"t1","pair":"EURUSD"},{"@type":"demo::m2m::filterCast::source::S_FxTrade","id":"t2","pair":"GBPUSD"},{"@type":"demo::m2m::filterCast::source::S_FxTrade","id":"t3","pair":"EURJPY"}]},{"@type":"demo::m2m::filterCast::source::S_FxBook","name":"rates-book","desk":"RATES","trades":[]}]';
                   }#
               }#
           ];
@@ -94,7 +96,7 @@ Mapping demo::m2m::filterCast::BookMapping
                   ExternalFormat
                   #{
                     contentType: 'application/json';
-                    data: '{"name":"fx-book","eurTrades":[{"id":"t1"}]}';
+                    data: '{"name":"fx-book","eurTrades":[{"id":"t1","pair":"EURUSD"},{"id":"t3","pair":"EURJPY"}]}';
                   }#;
               }#
           ];
