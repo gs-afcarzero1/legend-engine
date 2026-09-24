@@ -1,0 +1,144 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+###Pure
+Class listReturn::model::Source
+{
+  id: String[1];
+  code: String[1];
+  optCode: String[0..1];
+  n: Integer[1];
+}
+
+Class listReturn::model::Target
+{
+  id: String[1];
+  codes: String[*];
+  optCodes: String[*];
+  nums: Integer[*];
+  letCodes: String[*];
+}
+
+function listReturn::model::codes(s: listReturn::model::Source[1]): String[*]
+{
+  $s.code
+}
+
+function listReturn::model::optCodes(s: listReturn::model::Source[1]): String[*]
+{
+  $s.optCode
+}
+
+function listReturn::model::nums(s: listReturn::model::Source[1]): Integer[*]
+{
+  $s.n
+}
+
+function listReturn::model::letCodes(s: listReturn::model::Source[1]): String[*]
+{
+  let c = $s.code;
+  $c;
+}
+
+
+###Mapping
+Mapping listReturn::mapping::SourceToTarget
+(
+  *listReturn::model::Target: Pure
+  {
+    ~src listReturn::model::Source
+    id: $src.id,
+    codes: $src->listReturn::model::codes(),
+    optCodes: $src->listReturn::model::optCodes(),
+    nums: $src->listReturn::model::nums(),
+    letCodes: $src->listReturn::model::letCodes()
+  }
+)
+
+
+###Runtime
+Runtime listReturn::runtime::SourceRuntime
+{
+  mappings:
+  [
+    listReturn::mapping::SourceToTarget
+  ];
+  connections:
+  [
+    ModelStore:
+    [
+      json:
+      #{
+        JsonModelConnection
+        {
+          class: listReturn::model::Source;
+          url: 'executor:default';
+        }
+      }#
+    ]
+  ];
+}
+
+
+###Service
+Service listReturn::service::ListReturnService
+{
+  pattern: '/listReturn';
+  documentation: 'M2M mapping calling [*] functions whose bodies end in a to-one or optional expression.';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: |listReturn::model::Target.all()->graphFetch(#{listReturn::model::Target{id,codes,optCodes,nums,letCodes}}#)->serialize(#{listReturn::model::Target{id,codes,optCodes,nums,letCodes}}#);
+    mapping: listReturn::mapping::SourceToTarget;
+    runtime: listReturn::runtime::SourceRuntime;
+  }
+  testSuites:
+  [
+    widening:
+    {
+      data:
+      [
+        connections:
+        [
+          json:
+            ExternalFormat
+            #{
+              contentType: 'application/json';
+              data: '[{"id":"full","code":"A","optCode":"B","n":7},{"id":"sparse","code":"C","n":8}]';
+            }#
+        ]
+      ]
+      tests:
+      [
+        singleValuesBecomeLists:
+        {
+          serializationFormat: PURE;
+          asserts:
+          [
+            listsMatch:
+              EqualToJson
+              #{
+                expected:
+                  ExternalFormat
+                  #{
+                    contentType: 'application/json';
+                    data: '[{"id":"full","codes":["A"],"optCodes":["B"],"nums":[7],"letCodes":["A"]},{"id":"sparse","codes":["C"],"optCodes":[],"nums":[8],"letCodes":["C"]}]';
+                  }#;
+              }#
+          ]
+        }
+      ]
+    }
+  ]
+}

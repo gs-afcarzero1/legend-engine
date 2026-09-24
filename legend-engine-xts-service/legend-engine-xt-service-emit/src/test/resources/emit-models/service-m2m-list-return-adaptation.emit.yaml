@@ -1,0 +1,29 @@
+name: service-m2m-list-return-adaptation
+title: "M2M Service Calling Functions That Widen a Single Value to a List"
+description: |
+  An M2M service whose mapping calls user functions declared `[*]` whose bodies
+  end in a to-one or zero-to-one expression: a String property, an optional
+  String property, a primitive Integer property, and a `let`-bound value. The
+  Java generator emits each function as a method returning `List<T>`, so the
+  final expression must be widened to a list (null-safely for `[0..1]`) or the
+  generated plan does not compile. The service test executes the plan over
+  ModelStore JSON data, one row lacking the optional value.
+
+modelSources:
+  model:
+    root: service-m2m-list-return-adaptation
+    files:
+      - model.pure
+
+features:
+  - execution:plan-generation
+  - execution:service
+  - execution:service-test
+  - execution:test-data
+  - mapping:mapping
+stores: []
+complexity: basic
+tags:
+  - m2m
+  - java-generation
+  - service-test
