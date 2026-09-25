@@ -159,7 +159,7 @@ function <<access.private>> meta::pure::mapping::modelToModel::executionPlan::pl
       // Gated on a pure model-to-model runtime so M2M2R (relational leaf present) keeps filtering at the relational store.
       let body = if($context.pureM2MRuntime && $q->milestoningIgnoredInMemory($set),
                     | $jThis->allVersionsCode($q, $nodeType, $fieldType, $conventions),
-                    | let rawBody = $q.expressionSequence->evaluateAndDeactivate()->generateJavaMethodBody($conventions, $debug);
+                    | let rawBody = $q.expressionSequence->evaluateAndDeactivate()->generateJavaMethodBody($conventions, $fieldType, $debug);
                       if($q->hasGeneratedMilestoningPropertyStereotype() && $q->functionReturnMultiplicity()->isZeroOne(),
                          | let stmts = $rawBody->cast(@Block).statements;
                            let lastReturn = $stmts->last()->toOne()->cast(@Return);

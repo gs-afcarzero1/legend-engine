@@ -1527,12 +1527,12 @@ function meta::external::language::java::factory::j_cast(expression:Code[1], cas
                 let inputType        = $castTo->inputTypeOfJavaFunction();
                 let inputParameter   = $expression->cast(@Lambda).parameters->at(0);
              
-                if($castResult->isJavaList() && !$funcResult->isJavaList(),
+                if($castResult->isJavaList() && (!$funcResult->isJavaList() || $funcResult->isJavaListNeedingElementCast($castResult)),
                   {|
                      let fResult = j_variable($funcResult, '_fResult');
                      let makeList = j_lambda($inputParameter, j_block([
                         $fResult->j_declare($expression->j_cast(javaFunction($inputType, $funcResult))->j_invoke('apply', [$inputParameter], $funcResult)),
-                        $fResult->j_listOf(javaList($funcResult))->j_return()
+                        $fResult->j_listOf(if($funcResult->isJavaList(), |$castResult, |javaList($funcResult)))->j_return()
                      ]));
                      ^Cast(expression=$makeList, type=$castTo);
                   },
@@ -1541,12 +1541,12 @@ function meta::external::language::java::factory::j_cast(expression:Code[1], cas
          if ($castTo->isJavaSupplier(), |             
                let castResult = $castTo->suppliedTypeOfJavaSupplier();
 
-               if($castResult->isJavaList() && !$funcResult->isJavaList(),
+               if($castResult->isJavaList() && (!$funcResult->isJavaList() || $funcResult->isJavaListNeedingElementCast($castResult)),
                   {|
                      let fResult = j_variable($funcResult, '_fResult');
                      let makeList = j_lambda([]->cast(@Code), j_block([
                         $fResult->j_declare($expression->j_cast(javaSupplier($funcResult))->j_invoke('get', [], $funcResult)),
-                        $fResult->j_listOf(javaList($funcResult))->j_return()
+                        $fResult->j_listOf(if($funcResult->isJavaList(), |$castResult, |javaList($funcResult)))->j_return()
                      ]));
                      ^Cast(expression=$makeList, type=$castTo);
                   },

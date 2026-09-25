@@ -1,0 +1,31 @@
+name: service-m2m-subtype-return-adaptation
+title: "M2M Service Calling Functions That Return Subtypes as Their Supertype"
+description: |
+  An M2M service whose mapping calls user functions declared to return
+  `Payment[*]` whose bodies produce `Card` and `Cash` subtype instances: a
+  literal of a let-bound cast and a cast, a let-bound subtype list, a call to a
+  helper declared `Card[*]`, an `if` choosing a subtype list or nothing, an `if`
+  whose branches return different subtype lists, and a qualified property
+  delegating to the helper. Java generics are invariant, so each `List<Card>`
+  must be re-typed as `List<Payment>` or the generated plan does not compile.
+  The service test executes the plan over ModelStore JSON data carrying the
+  subtypes.
+
+modelSources:
+  model:
+    root: service-m2m-subtype-return-adaptation
+    files:
+      - model.pure
+
+features:
+  - execution:plan-generation
+  - execution:service
+  - execution:service-test
+  - execution:test-data
+  - mapping:mapping
+stores: []
+complexity: basic
+tags:
+  - m2m
+  - java-generation
+  - service-test

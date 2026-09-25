@@ -1,0 +1,181 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+###Pure
+Class subtypeReturn::model::Payment
+{
+  label: String[1];
+}
+
+Class subtypeReturn::model::Card extends subtypeReturn::model::Payment
+{
+  number: String[1];
+}
+
+Class subtypeReturn::model::Cash extends subtypeReturn::model::Payment
+{
+  currency: String[1];
+}
+
+Class subtypeReturn::model::Order
+{
+  id: String[1];
+  preferCard: Boolean[1];
+  primary: subtypeReturn::model::Payment[1];
+  secondary: subtypeReturn::model::Payment[1];
+  payments: subtypeReturn::model::Payment[*];
+  cardPayments() { $this->subtypeReturn::model::cards() }: subtypeReturn::model::Payment[*];
+}
+
+Class subtypeReturn::model::Summary
+{
+  id: String[1];
+  mixed: String[*];
+  letCards: String[*];
+  delegated: String[*];
+  ternary: String[*];
+  branches: String[*];
+  qualified: String[*];
+}
+
+function subtypeReturn::model::cards(o: subtypeReturn::model::Order[1]): subtypeReturn::model::Card[*]
+{
+  $o.payments->filter(p | $p->instanceOf(subtypeReturn::model::Card))->cast(@subtypeReturn::model::Card)
+}
+
+function subtypeReturn::model::mixed(o: subtypeReturn::model::Order[1]): subtypeReturn::model::Payment[*]
+{
+  let card = $o.primary->cast(@subtypeReturn::model::Card);
+  [$card, $o.secondary->cast(@subtypeReturn::model::Cash)];
+}
+
+function subtypeReturn::model::letCards(o: subtypeReturn::model::Order[1]): subtypeReturn::model::Payment[*]
+{
+  let cards = $o.payments->filter(p | $p->instanceOf(subtypeReturn::model::Card))->cast(@subtypeReturn::model::Card);
+  $cards;
+}
+
+function subtypeReturn::model::delegated(o: subtypeReturn::model::Order[1]): subtypeReturn::model::Payment[*]
+{
+  $o->subtypeReturn::model::cards()
+}
+
+function subtypeReturn::model::ternary(o: subtypeReturn::model::Order[1]): subtypeReturn::model::Payment[*]
+{
+  let cards = $o->subtypeReturn::model::cards();
+  if($o.preferCard, |$cards, |[]);
+}
+
+function subtypeReturn::model::branches(o: subtypeReturn::model::Order[1]): subtypeReturn::model::Payment[*]
+{
+  if($o.preferCard,
+     | let cards = $o->subtypeReturn::model::cards();
+       $cards;,
+     | $o.payments->filter(p | $p->instanceOf(subtypeReturn::model::Cash))->cast(@subtypeReturn::model::Cash)
+  )
+}
+
+
+###Mapping
+Mapping subtypeReturn::mapping::OrderToSummary
+(
+  *subtypeReturn::model::Summary: Pure
+  {
+    ~src subtypeReturn::model::Order
+    id: $src.id,
+    mixed: $src->subtypeReturn::model::mixed().label,
+    letCards: $src->subtypeReturn::model::letCards().label,
+    delegated: $src->subtypeReturn::model::delegated().label,
+    ternary: $src->subtypeReturn::model::ternary().label,
+    branches: $src->subtypeReturn::model::branches().label,
+    qualified: $src.cardPayments().label
+  }
+)
+
+
+###Runtime
+Runtime subtypeReturn::runtime::OrderRuntime
+{
+  mappings:
+  [
+    subtypeReturn::mapping::OrderToSummary
+  ];
+  connections:
+  [
+    ModelStore:
+    [
+      json:
+      #{
+        JsonModelConnection
+        {
+          class: subtypeReturn::model::Order;
+          url: 'executor:default';
+        }
+      }#
+    ]
+  ];
+}
+
+
+###Service
+Service subtypeReturn::service::SubtypeReturnService
+{
+  pattern: '/subtypeReturn';
+  documentation: 'M2M mapping calling functions declared to return a supertype whose bodies return subtype instances.';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: |subtypeReturn::model::Summary.all()->graphFetch(#{subtypeReturn::model::Summary{id,mixed,letCards,delegated,ternary,branches,qualified}}#)->serialize(#{subtypeReturn::model::Summary{id,mixed,letCards,delegated,ternary,branches,qualified}}#);
+    mapping: subtypeReturn::mapping::OrderToSummary;
+    runtime: subtypeReturn::runtime::OrderRuntime;
+  }
+  testSuites:
+  [
+    subtypes:
+    {
+      data:
+      [
+        connections:
+        [
+          json:
+            ExternalFormat
+            #{
+              contentType: 'application/json';
+              data: '[{"id":"o1","preferCard":true,"primary":{"@type":"subtypeReturn::model::Card","label":"c1","number":"1"},"secondary":{"@type":"subtypeReturn::model::Cash","label":"k1","currency":"USD"},"payments":[{"@type":"subtypeReturn::model::Card","label":"c2","number":"2"},{"@type":"subtypeReturn::model::Cash","label":"k2","currency":"EUR"},{"@type":"subtypeReturn::model::Card","label":"c3","number":"3"}]},{"id":"o2","preferCard":false,"primary":{"@type":"subtypeReturn::model::Card","label":"c4","number":"4"},"secondary":{"@type":"subtypeReturn::model::Cash","label":"k3","currency":"GBP"},"payments":[{"@type":"subtypeReturn::model::Cash","label":"k4","currency":"JPY"}]}]';
+            }#
+        ]
+      ]
+      tests:
+      [
+        subtypesReturnedAsSupertype:
+        {
+          serializationFormat: PURE;
+          asserts:
+          [
+            labelsMatch:
+              EqualToJson
+              #{
+                expected:
+                  ExternalFormat
+                  #{
+                    contentType: 'application/json';
+                    data: '[{"id":"o1","mixed":["c1","k1"],"letCards":["c2","c3"],"delegated":["c2","c3"],"ternary":["c2","c3"],"branches":["c2","c3"],"qualified":["c2","c3"]},{"id":"o2","mixed":["c4","k3"],"letCards":[],"delegated":[],"ternary":[],"branches":["k4"],"qualified":[]}]';
+                  }#;
+              }#
+          ]
+        }
+      ]
+    }
+  ]
+}
