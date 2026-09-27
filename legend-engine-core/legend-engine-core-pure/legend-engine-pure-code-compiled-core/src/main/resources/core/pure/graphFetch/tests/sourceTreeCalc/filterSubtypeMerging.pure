@@ -1,0 +1,130 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+###Pure
+import meta::pure::graphFetch::*;
+import meta::pure::graphFetch::tests::filterSubtypeMerging::*;
+
+Class meta::pure::graphFetch::tests::filterSubtypeMerging::Source
+{
+  name: String[1];
+  children: Source[*];
+}
+
+Class meta::pure::graphFetch::tests::filterSubtypeMerging::FxSource extends Source
+{
+  desk: String[1];
+  currency: String[1];
+}
+
+Class meta::pure::graphFetch::tests::filterSubtypeMerging::Target
+{
+  name: String[1];
+  children: TargetChild[*];
+}
+
+Class meta::pure::graphFetch::tests::filterSubtypeMerging::TargetChild
+{
+  name: String[1];
+}
+
+function <<test.Test>> meta::pure::graphFetch::tests::filterSubtypeMerging::testRepeatedSubtypeMergeKeepsBaseAndIncomingProperties():Boolean[1]
+{
+  let base = #{Source{name}}#;
+  let first = ^SubTypeGraphFetchTree(subTypeClass=FxSource, subTrees=#{FxSource{desk}}#.subTrees);
+  let second = ^SubTypeGraphFetchTree(subTypeClass=FxSource, subTrees=#{FxSource{currency}}#.subTrees);
+  let merged = $base->addSubTypeTrees([$first, $second, $first]);
+  assertEquals(['name'], $merged.subTrees->cast(@PropertyGraphFetchTree).property.name);
+  assertEquals(1, $merged.subTypeTrees->size());
+  assertEquals(['currency', 'desk', 'name'], $merged.subTypeTrees->toOne().subTrees->cast(@PropertyGraphFetchTree).property.name->sort());
+}
+
+function <<test.Test>> meta::pure::graphFetch::tests::filterSubtypeMerging::testFilterAndTransformReadTheSameSubtype():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target{name}}#, repeatedSubtypeMapping, meta::pure::extension::defaultExtensions());
+  assertEquals(1, $actual.subTypeTrees->size());
+  assertEquals(FxSource, $actual.subTypeTrees->toOne().subTypeClass);
+  assertEquals(['currency', 'desk'], $actual.subTypeTrees->toOne().subTrees->cast(@PropertyGraphFetchTree).property.name->sort());
+}
+
+function <<test.Test>> meta::pure::graphFetch::tests::filterSubtypeMerging::testChildFilterMergesCopiedBaseProperties():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target{name,children{name}}}#, childFilterMapping, meta::pure::extension::defaultExtensions());
+  let expected = #{Source{name,children{name},children->subType(@FxSource){name,desk}}}#;
+  assertEquals($expected->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::graphFetch::tests::filterSubtypeMerging::testTypedMatchFilterRetainsBaseAndSubtypeReads():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target{name}}#, matchFilterMapping, meta::pure::extension::defaultExtensions());
+  assertEquals(['name'], $actual.subTrees->cast(@PropertyGraphFetchTree).property.name);
+  assertEquals(1, $actual.subTypeTrees->size());
+  assertEquals(['desk', 'name'], $actual.subTypeTrees->toOne().subTrees->cast(@PropertyGraphFetchTree).property.name->sort());
+}
+
+function <<test.Test>> meta::pure::graphFetch::tests::filterSubtypeMerging::testOrdinaryFilterHasNoSubtypeNodes():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target{name}}#, ordinaryFilterMapping, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Source{name}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+  assertEquals(0, $actual.subTypeTrees->size());
+}
+
+###Mapping
+import meta::pure::graphFetch::tests::filterSubtypeMerging::*;
+
+Mapping meta::pure::graphFetch::tests::filterSubtypeMerging::repeatedSubtypeMapping
+(
+  Target: Pure
+  {
+    ~src Source
+    ~filter $src->cast(@FxSource).desk == 'FX'
+    name: $src->cast(@FxSource).currency
+  }
+)
+
+Mapping meta::pure::graphFetch::tests::filterSubtypeMerging::childFilterMapping
+(
+  *Target: Pure
+  {
+    ~src Source
+    name: $src.name,
+    children[child]: $src.children
+  }
+  TargetChild[child]: Pure
+  {
+    ~src Source
+    ~filter $src->cast(@FxSource).desk == 'FX'
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::graphFetch::tests::filterSubtypeMerging::matchFilterMapping
+(
+  Target: Pure
+  {
+    ~src Source
+    ~filter $src->match([f:FxSource[1] | $f.desk == 'FX', s:Source[1] | $s.name == 'base'])
+    name: $src.name
+  }
+)
+
+Mapping meta::pure::graphFetch::tests::filterSubtypeMerging::ordinaryFilterMapping
+(
+  Target: Pure
+  {
+    ~src Source
+    ~filter $src.name == 'base'
+    name: $src.name
+  }
+)
