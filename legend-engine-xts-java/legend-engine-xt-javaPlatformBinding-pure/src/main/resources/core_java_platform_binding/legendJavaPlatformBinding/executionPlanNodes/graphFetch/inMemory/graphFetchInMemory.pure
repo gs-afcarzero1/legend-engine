@@ -104,8 +104,13 @@ function meta::pure::mapping::modelToModel::executionPlan::platformBinding::lege
 
    ]);
 
+   let pureSets    = $node.graphFetchTree->cast(@RoutedGraphFetchTree).sets->filter(s | $s->instanceOf(PureInstanceSetImplementation))->cast(@PureInstanceSetImplementation);
+   let mappingCode = $pureSets.filter->concatenate($pureSets.propertyMappings->filter(pm | $pm->instanceOf(PurePropertyMapping))->cast(@PurePropertyMapping).transform)
+                        .expressionSequence->evaluateAndDeactivate();
+
    ^$context(
       typeInfos = $newTypeInfos,
+      newInstanceSources = $context.newInstanceSources->concatenate($mappingCode),
       nodeInfos = $context.nodeInfos->concatenate($currentNodeInfo)
    );
 }

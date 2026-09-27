@@ -1,0 +1,31 @@
+name: m2m-constructed-class-interface
+title: "Classes Constructed by M2M Transforms That Are Also Read or Mapped"
+description: |
+  Model-to-model mappings whose transforms construct a class with `^Class(...)`
+  that the plan also reads from the source or produces as a target: through a
+  nested constructor in a function, as a target class, as the supertype of a
+  constructed subtype, and from a class filter and a qualified property. The
+  generated Java interface of a constructed class carries every property, so
+  every other implementation of it must too, while the source data still only
+  has to supply the properties the mapping reads: each test's data omits the rest.
+
+modelSources:
+  model:
+    root: m2m-constructed-class-interface
+    files:
+      - model.pure
+      - mapping.pure
+
+features:
+  - execution:test-data
+  - mapping:m2m-constructed-class
+  - mapping:mapping
+  - scaffolding:class
+  - scaffolding:m2m-mapping
+stores: []
+complexity: basic
+tags:
+  - m2m
+  - java-generation
+  - new-operator
+  - mapping-test

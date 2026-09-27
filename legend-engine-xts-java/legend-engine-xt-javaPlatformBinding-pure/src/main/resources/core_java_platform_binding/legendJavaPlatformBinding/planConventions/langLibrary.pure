@@ -278,3 +278,25 @@ function meta::pure::executionPlan::platformBinding::legendJava::library::lang::
       }
    );
 }
+
+// processNew generates the interface of a constructed class from all its properties; its other implementations need them too
+function meta::pure::executionPlan::platformBinding::legendJava::library::lang::enrichTypeInfosForNewInstances(infos:meta::pure::executionPlan::platformBinding::typeInfo::TypeInfoSet[1], expressions:ValueSpecification[*], conventions:Conventions[1]): meta::pure::executionPlan::platformBinding::typeInfo::TypeInfoSet[1]
+{
+   $infos->enrichTypeInfosForNewInstances($expressions, $conventions, []);
+}
+
+function <<access.private>> meta::pure::executionPlan::platformBinding::legendJava::library::lang::enrichTypeInfosForNewInstances(infos:meta::pure::executionPlan::platformBinding::typeInfo::TypeInfoSet[1], expressions:ValueSpecification[*], conventions:Conventions[1], scanned:QualifiedProperty<Any>[*]): meta::pure::executionPlan::platformBinding::typeInfo::TypeInfoSet[1]
+{
+   let widened = $expressions
+      ->map(e | $e->meta::pure::functions::meta::findExpressionsForFunctionInValueSpecification(new_Class_1__String_1__KeyExpression_MANY__T_1_, f | $conventions->getFunctionCoder($f)->isEmpty()))
+      ->map(fe | $fe.parametersValues->at(0).genericType.typeArguments.rawType->cast(@meta::pure::metamodel::type::Class<Any>))
+      ->filter(c | $c != meta::pure::functions::collection::Pair)
+      ->removeDuplicates()
+      ->fold({c, i | $i->enrichTypeInfos($c, [])}, $infos);
+
+   let unscanned = $widened->meta::pure::executionPlan::platformBinding::typeInfo::allClassInfos().qualifiedProperties->removeDuplicates()->filter(q | !$q->in($scanned));
+   if($unscanned->isEmpty(),
+      | $widened,
+      | $widened->enrichTypeInfosForNewInstances($unscanned.expressionSequence->evaluateAndDeactivate(), $conventions, $scanned->concatenate($unscanned))
+   );
+}

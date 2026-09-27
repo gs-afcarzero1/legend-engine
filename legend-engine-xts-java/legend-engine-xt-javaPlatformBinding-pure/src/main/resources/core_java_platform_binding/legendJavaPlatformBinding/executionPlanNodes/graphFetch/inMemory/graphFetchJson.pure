@@ -278,7 +278,7 @@ function <<access.private>> meta::pure::mapping::modelToModel::executionPlan::pl
 function <<access.private>> meta::pure::mapping::modelToModel::executionPlan::platformBinding::legendJava::graphFetch::storeStreamReading::json::defineClassPreParseVariables(class:meta::pure::metamodel::type::Class<Any>[1], proto:meta::external::language::java::metamodel::Class[1], context:GenerationContext[1]): String[1]
 {
    let conventions = $context.conventions;
-   $context.typeInfos->allProperties($class)->map({p|
+   $context->typeInfosToRead()->allProperties($class)->map({p|
       let javaType = $conventions->pureTypeToJavaType($p);
       let listType = if(isJavaList($javaType), |$javaType, |javaList($javaType));
       let variable = '_'+$conventions->fieldName($p);
@@ -303,7 +303,7 @@ function <<access.private>> meta::pure::mapping::modelToModel::executionPlan::pl
    let conventions     = $context.conventions;
    let jsonToken       = $conventions->codeType(javaClass('com.fasterxml.jackson.core.JsonToken'))->codeToString($proto);
 
-   let propertyClauses   = $context.typeInfos->allProperties($class)->map({p|
+   let propertyClauses   = $context->typeInfosToRead()->allProperties($class)->map({p|
       let variable       = '_'+$conventions->fieldName($p);
       let javaType       = $conventions->pureTypeToJavaType($p);
       let propertyType   = $p.genericType.rawType->toOne()->bypassExtendedPrimitives();
@@ -352,7 +352,7 @@ function <<access.private>> meta::pure::mapping::modelToModel::executionPlan::pl
 
 function <<access.private>> meta::pure::mapping::modelToModel::executionPlan::platformBinding::legendJava::graphFetch::storeStreamReading::json::validateMultiplicities(class:meta::pure::metamodel::type::Class<Any>[1], context:GenerationContext[1]): String[1]
 {
-   $context.typeInfos->allProperties($class)->map({p|
+   $context->typeInfosToRead()->allProperties($class)->map({p|
       let variable = '_'+$context.conventions->fieldName($p);
       let expected = $p.multiplicity->printMultiplicity();
 
@@ -408,7 +408,7 @@ function <<access.private>> meta::pure::mapping::modelToModel::executionPlan::pl
    let checked                = $conventions->className(Checked);
    let checkedResult          = javaParameterizedType($checked, $javaClass);
 
-   let declaresAndGetters = $context.typeInfos->allProperties($class)->map({p|
+   let declaresAndGetters = $context->typeInfosToRead()->allProperties($class)->map({p|
       let variable = $conventions->fieldName($p);
       let value    = if($p.multiplicity->isToOne(),
                         | '_'+$variable+'.get(0)',

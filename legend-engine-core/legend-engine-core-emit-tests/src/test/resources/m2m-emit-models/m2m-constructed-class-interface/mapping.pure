@@ -1,0 +1,307 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Control for the reader projection tests: no constructed class participates in this plan.
+###Mapping
+Mapping demo::m2m::constructed::NoConstructor
+(
+  demo::m2m::constructed::target::Summary: Pure
+  {
+    ~src demo::m2m::constructed::source::Customer
+    id: $src.id,
+    values: $src.address.street
+  }
+)
+
+// Both the base reader and the subtype reader must retain their projected fields.
+###Mapping
+Mapping demo::m2m::constructed::PolymorphicSource
+(
+  demo::m2m::constructed::target::Summary: Pure
+  {
+    ~src demo::m2m::constructed::source::Address
+    id: $src.street,
+    values: ^demo::m2m::constructed::source::Address(street=$src.street, city='unknown', zip=0).street
+      ->concatenate($src->match([
+        p: demo::m2m::constructed::source::PostalAddress[1] | $p.box,
+        a: demo::m2m::constructed::source::Address[1] | 'base'
+      ]))
+  }
+)
+
+// A function builds a Label holding a new Address; the mapping reads the Address street through it.
+###Mapping
+Mapping demo::m2m::constructed::NestedConstructor
+(
+  demo::m2m::constructed::target::Summary: Pure
+  {
+    ~src demo::m2m::constructed::source::Customer
+    id: $src.id,
+    values: $src->demo::m2m::constructed::label().address.street
+  }
+
+  testSuites:
+  [
+    summaries:
+    {
+      function: |demo::m2m::constructed::target::Summary.all()->graphFetch(#{demo::m2m::constructed::target::Summary{id,values}}#)->serialize(#{demo::m2m::constructed::target::Summary{id,values}}#);
+      tests:
+      [
+        sparseSource:
+        {
+          data:
+          [
+            ModelStore: ModelStore
+              #{
+                demo::m2m::constructed::source::Customer:
+                  ExternalFormat
+                  #{
+                    contentType: 'application/json';
+                    data: '[{"id":"c1","name":"Ann","address":{"street":"main st"}},{"id":"c2","name":"Bob","address":{"street":"side ln"}}]';
+                  }#
+              }#
+          ];
+          asserts:
+          [
+            expected:
+              EqualToJson
+              #{
+                expected:
+                  ExternalFormat
+                  #{
+                    contentType: 'application/json';
+                    data: '[{"id":"c1","values":["MAIN ST"]},{"id":"c2","values":["SIDE LN"]}]';
+                  }#;
+              }#
+          ];
+        }
+      ];
+    }
+  ]
+)
+
+
+// Address is also a target class, implemented by the graph fetch.
+###Mapping
+Mapping demo::m2m::constructed::TargetClass
+(
+  *demo::m2m::constructed::target::Card: Pure
+  {
+    ~src demo::m2m::constructed::source::Customer
+    id: $src.id,
+    values: $src->demo::m2m::constructed::normalise().city,
+    addresses[address]: $src
+  }
+  demo::m2m::constructed::source::Address[address]: Pure
+  {
+    ~src demo::m2m::constructed::source::Customer
+    street: $src.name
+  }
+
+  testSuites:
+  [
+    cards:
+    {
+      function: |demo::m2m::constructed::target::Card.all()->graphFetch(#{demo::m2m::constructed::target::Card{id,values,addresses{street}}}#)->serialize(#{demo::m2m::constructed::target::Card{id,values,addresses{street}}}#);
+      tests:
+      [
+        sparseSource:
+        {
+          data:
+          [
+            ModelStore: ModelStore
+              #{
+                demo::m2m::constructed::source::Customer:
+                  ExternalFormat
+                  #{
+                    contentType: 'application/json';
+                    data: '[{"id":"c1","name":"Ann","address":{"street":"main st"}},{"id":"c2","name":"Bob","address":{"street":"side ln"}}]';
+                  }#
+              }#
+          ];
+          asserts:
+          [
+            expected:
+              EqualToJson
+              #{
+                expected:
+                  ExternalFormat
+                  #{
+                    contentType: 'application/json';
+                    data: '[{"id":"c1","values":["unknown"],"addresses":[{"street":"Ann"}]},{"id":"c2","values":["unknown"],"addresses":[{"street":"Bob"}]}]';
+                  }#;
+              }#
+          ];
+        }
+      ];
+    }
+  ]
+)
+
+
+// Constructing a subtype completes the interface of its source supertype.
+###Mapping
+Mapping demo::m2m::constructed::Subtype
+(
+  demo::m2m::constructed::target::Summary: Pure
+  {
+    ~src demo::m2m::constructed::source::Customer
+    id: $src.id,
+    values: $src->demo::m2m::constructed::postal().street
+  }
+
+  testSuites:
+  [
+    summaries:
+    {
+      function: |demo::m2m::constructed::target::Summary.all()->graphFetch(#{demo::m2m::constructed::target::Summary{id,values}}#)->serialize(#{demo::m2m::constructed::target::Summary{id,values}}#);
+      tests:
+      [
+        sparseSource:
+        {
+          data:
+          [
+            ModelStore: ModelStore
+              #{
+                demo::m2m::constructed::source::Customer:
+                  ExternalFormat
+                  #{
+                    contentType: 'application/json';
+                    data: '[{"id":"c1","name":"Ann","address":{"street":"main st"}},{"id":"c2","name":"Bob","address":{"street":"side ln"}}]';
+                  }#
+              }#
+          ];
+          asserts:
+          [
+            expected:
+              EqualToJson
+              #{
+                expected:
+                  ExternalFormat
+                  #{
+                    contentType: 'application/json';
+                    data: '[{"id":"c1","values":["main st"]},{"id":"c2","values":["side ln"]}]';
+                  }#;
+              }#
+          ];
+        }
+      ];
+    }
+  ]
+)
+
+
+// The constructor is only used by the class filter.
+###Mapping
+Mapping demo::m2m::constructed::Filter
+(
+  demo::m2m::constructed::target::Summary: Pure
+  {
+    ~src demo::m2m::constructed::source::Customer
+    ~filter $src->demo::m2m::constructed::normalise().street == 'MAIN ST'
+    id: $src.id,
+    values: $src.address.street
+  }
+
+  testSuites:
+  [
+    summaries:
+    {
+      function: |demo::m2m::constructed::target::Summary.all()->graphFetch(#{demo::m2m::constructed::target::Summary{id,values}}#)->serialize(#{demo::m2m::constructed::target::Summary{id,values}}#);
+      tests:
+      [
+        sparseSource:
+        {
+          data:
+          [
+            ModelStore: ModelStore
+              #{
+                demo::m2m::constructed::source::Customer:
+                  ExternalFormat
+                  #{
+                    contentType: 'application/json';
+                    data: '[{"id":"c1","name":"Ann","address":{"street":"main st"}},{"id":"c2","name":"Bob","address":{"street":"side ln"}}]';
+                  }#
+              }#
+          ];
+          asserts:
+          [
+            expected:
+              EqualToJson
+              #{
+                expected:
+                  ExternalFormat
+                  #{
+                    contentType: 'application/json';
+                    data: '{"id":"c1","values":["main st"]}';
+                  }#;
+              }#
+          ];
+        }
+      ];
+    }
+  ]
+)
+
+
+// The constructor is inside a qualified property of the source class.
+###Mapping
+Mapping demo::m2m::constructed::QualifiedProperty
+(
+  demo::m2m::constructed::target::Summary: Pure
+  {
+    ~src demo::m2m::constructed::source::Customer
+    id: $src.id,
+    values: $src.normalised().street
+  }
+
+  testSuites:
+  [
+    summaries:
+    {
+      function: |demo::m2m::constructed::target::Summary.all()->graphFetch(#{demo::m2m::constructed::target::Summary{id,values}}#)->serialize(#{demo::m2m::constructed::target::Summary{id,values}}#);
+      tests:
+      [
+        sparseSource:
+        {
+          data:
+          [
+            ModelStore: ModelStore
+              #{
+                demo::m2m::constructed::source::Customer:
+                  ExternalFormat
+                  #{
+                    contentType: 'application/json';
+                    data: '[{"id":"c1","name":"Ann","address":{"street":"main st"}},{"id":"c2","name":"Bob","address":{"street":"side ln"}}]';
+                  }#
+              }#
+          ];
+          asserts:
+          [
+            expected:
+              EqualToJson
+              #{
+                expected:
+                  ExternalFormat
+                  #{
+                    contentType: 'application/json';
+                    data: '[{"id":"c1","values":["MAIN ST"]},{"id":"c2","values":["SIDE LN"]}]';
+                  }#;
+              }#
+          ];
+        }
+      ];
+    }
+  ]
+)

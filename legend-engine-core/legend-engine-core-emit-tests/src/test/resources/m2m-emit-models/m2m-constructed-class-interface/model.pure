@@ -1,0 +1,81 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+###Pure
+Class demo::m2m::constructed::source::Address
+{
+  street: String[1];
+  city: String[1];
+  zip: Integer[1];
+}
+
+Class demo::m2m::constructed::source::PostalAddress extends demo::m2m::constructed::source::Address
+{
+  box: String[1];
+}
+
+Class demo::m2m::constructed::source::Region
+{
+  code: String[1];
+}
+
+// Interface completion includes association properties even when no input reads them.
+Association demo::m2m::constructed::source::AddressRegion
+{
+  addresses: demo::m2m::constructed::source::Address[*];
+  region: demo::m2m::constructed::source::Region[0..1];
+}
+
+Class demo::m2m::constructed::source::Customer
+{
+  id: String[1];
+  name: String[1];
+  address: demo::m2m::constructed::source::Address[1];
+  normalised() { ^demo::m2m::constructed::source::Address(street=$this.address.street->toUpper(), city='unknown', zip=0) }: demo::m2m::constructed::source::Address[1];
+}
+
+Class demo::m2m::constructed::source::Label
+{
+  address: demo::m2m::constructed::source::Address[1];
+  tag: String[1];
+}
+
+Class demo::m2m::constructed::target::Summary
+{
+  id: String[1];
+  values: String[*];
+}
+
+Class demo::m2m::constructed::target::Card
+{
+  id: String[1];
+  values: String[*];
+  addresses: demo::m2m::constructed::source::Address[*];
+}
+
+function demo::m2m::constructed::label(c: demo::m2m::constructed::source::Customer[1]): demo::m2m::constructed::source::Label[1]
+{
+  let street = $c.address.street->toUpper();
+  ^demo::m2m::constructed::source::Label(address=^demo::m2m::constructed::source::Address(street=$street, city='unknown', zip=0), tag='mail');
+}
+
+function demo::m2m::constructed::normalise(c: demo::m2m::constructed::source::Customer[1]): demo::m2m::constructed::source::Address[1]
+{
+  ^demo::m2m::constructed::source::Address(street=$c.address.street->toUpper(), city='unknown', zip=0)
+}
+
+function demo::m2m::constructed::postal(c: demo::m2m::constructed::source::Customer[1]): demo::m2m::constructed::source::PostalAddress[1]
+{
+  ^demo::m2m::constructed::source::PostalAddress(street=$c.address.street, city='unknown', zip=0, box='B1')
+}

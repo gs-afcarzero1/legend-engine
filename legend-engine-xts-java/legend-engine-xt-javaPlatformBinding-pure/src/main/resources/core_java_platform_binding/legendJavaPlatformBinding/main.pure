@@ -41,6 +41,8 @@ Class meta::pure::executionPlan::platformBinding::legendJava::GenerationContext
    suppliedClassesForGeneration : meta::pure::metamodel::type::Class<Any>[*];
    pureM2MRuntime            : Boolean[1] = false;
    resolutionState           : CodeDependencyResolutionState[0..1];
+   newInstanceSources        : ValueSpecification[*];
+   typeInfosToRead           : TypeInfoSet[0..1];
 }
 
 Class meta::pure::executionPlan::platformBinding::legendJava::NodeInfo
@@ -137,6 +139,13 @@ function meta::pure::executionPlan::platformBinding::legendJava::generatedCode(p
                           executionMethodName    = $entryPoint.methods->filter(m |$m->isStatic())->first().name
                        )
    );
+}
+
+// Classes constructed with new are completed in typeInfos so their interfaces and implementations agree, but stores
+// must still read and validate only the properties the plan needs from them
+function meta::pure::executionPlan::platformBinding::legendJava::typeInfosToRead(context:GenerationContext[1]): TypeInfoSet[1]
+{
+   if($context.typeInfosToRead->isEmpty(), | $context.typeInfos, | $context.typeInfosToRead->toOne());
 }
 
 function meta::pure::executionPlan::platformBinding::legendJava::addNodeInfo(context:GenerationContext[1], nodeInfo:NodeInfo[1]): GenerationContext[1]
