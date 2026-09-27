@@ -3,8 +3,9 @@ title: "M2M Service Calling Functions That Widen a Single Value to a List"
 description: |
   An M2M service whose mapping calls user functions declared `[*]` whose bodies
   end in a to-one or zero-to-one expression: a String property, an optional
-  String property, a primitive Integer property, and a `let`-bound value. The
-  Java generator emits each function as a method returning `List<T>`, so the
+  String property, a primitive Integer property, and a `let`-bound value, plus
+  a `[*]` qualified property of the target class selected by the graph fetch.
+  The Java generator emits each as a method returning `List<T>`, so the
   final expression must be widened to a list (null-safely for `[0..1]`) or the
   generated plan does not compile. The service test executes the plan over
   ModelStore JSON data, one row lacking the optional value.

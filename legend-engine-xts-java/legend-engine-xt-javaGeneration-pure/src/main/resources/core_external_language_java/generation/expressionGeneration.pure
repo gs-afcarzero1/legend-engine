@@ -40,7 +40,7 @@ function meta::external::language::java::transform::generateJavaMethodBody(vses:
    $vses->statementsForBlock($cleanConventions, $debug)->j_block();
 }
 
-function <<access.private>>  meta::external::language::java::transform::generateJavaMethodBody(vses: ValueSpecification[*], conventions: Conventions[1], returnType:meta::external::language::java::metamodel::Type[1], debug: DebugContext[1]):Code[1]
+function meta::external::language::java::transform::generateJavaMethodBody(vses: ValueSpecification[*], conventions: Conventions[1], returnType:meta::external::language::java::metamodel::Type[1], debug: DebugContext[1]):Code[1]
 {
    assert($vses->isNotEmpty(), 'Method body must have at least one expression');
    let cleanConventions = ^$conventions(
@@ -94,7 +94,7 @@ function <<access.private>> meta::external::language::java::transform::prepareMe
                       | $expression->j_cast($type)
                    )
               ),
-            | if($type->isJavaList() && !$expression.type->isJavaCollection(),
+            | if($type->isJavaList() && (!$expression.type->isJavaCollection() || $expression.type->isJavaListNeedingElementCast($type)),
                  | $expression->j_listOf($type),
                  | $expression
               )

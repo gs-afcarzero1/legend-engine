@@ -1124,6 +1124,12 @@ function meta::external::language::java::metamodel::elementTypeOfJavaList(type: 
    $type->elementType();
 }
 
+// Java generics are invariant: a List<Sub> is not a List<Super>, so the elements must be cast into a new list
+function meta::external::language::java::metamodel::isJavaListNeedingElementCast(type: meta::external::language::java::metamodel::Type[1], listType: meta::external::language::java::metamodel::Type[1]):Boolean[1]
+{
+   $type->isJavaList() && $listType->isJavaList() && $type != $listType && $listType->elementTypeOfJavaList()->instanceOf(meta::external::language::java::metamodel::Class);
+}
+
 function meta::external::language::java::metamodel::isJavaSupplier(type: meta::external::language::java::metamodel::Type[1]):Boolean[1]
 {
    $type->match([

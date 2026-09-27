@@ -360,7 +360,7 @@ function meta::pure::executionPlan::platformBinding::legendJava::graphFetch::com
    let singlePropertyType = if ($qp->functionReturnMultiplicity()->hasToOneUpperBound(), | $qpJavaType, | $qpJavaType->cast(@meta::external::language::java::metamodel::ParameterizedType).typeArguments->at(0));
    let streamObjectVar = j_parameter($singlePropertyType->toBoxed(), 'o');
 
-   let getterBody = $qp.expressionSequence->evaluateAndDeactivate()->toOne()->changeThisVariableInValueSpecification('input$')->generateJavaMethodBody($conventions, $debug);
+   let getterBody = $qp.expressionSequence->evaluateAndDeactivate()->toOne()->changeThisVariableInValueSpecification('input$')->generateJavaMethodBody($conventions, $qpJavaType, $debug);
    let project = newProject()->addClass(
       $execClass
          ->implements($conventions->className(IPlatformPrimitiveQualifierLocalGraphFetchExecutionNodeSpecifics))

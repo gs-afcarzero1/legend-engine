@@ -28,6 +28,7 @@ Class listReturn::model::Target
   optCodes: String[*];
   nums: Integer[*];
   letCodes: String[*];
+  idList() { $this.id }: String[*];
 }
 
 function listReturn::model::codes(s: listReturn::model::Source[1]): String[*]
@@ -99,7 +100,7 @@ Service listReturn::service::ListReturnService
   autoActivateUpdates: true;
   execution: Single
   {
-    query: |listReturn::model::Target.all()->graphFetch(#{listReturn::model::Target{id,codes,optCodes,nums,letCodes}}#)->serialize(#{listReturn::model::Target{id,codes,optCodes,nums,letCodes}}#);
+    query: |listReturn::model::Target.all()->graphFetch(#{listReturn::model::Target{id,codes,optCodes,nums,letCodes,idList()}}#)->serialize(#{listReturn::model::Target{id,codes,optCodes,nums,letCodes,idList()}}#);
     mapping: listReturn::mapping::SourceToTarget;
     runtime: listReturn::runtime::SourceRuntime;
   }
@@ -133,7 +134,7 @@ Service listReturn::service::ListReturnService
                   ExternalFormat
                   #{
                     contentType: 'application/json';
-                    data: '[{"id":"full","codes":["A"],"optCodes":["B"],"nums":[7],"letCodes":["A"]},{"id":"sparse","codes":["C"],"optCodes":[],"nums":[8],"letCodes":["C"]}]';
+                    data: '[{"id":"full","codes":["A"],"optCodes":["B"],"nums":[7],"letCodes":["A"],"idList()":["full"]},{"id":"sparse","codes":["C"],"optCodes":[],"nums":[8],"letCodes":["C"],"idList()":["sparse"]}]';
                   }#;
               }#
           ]
