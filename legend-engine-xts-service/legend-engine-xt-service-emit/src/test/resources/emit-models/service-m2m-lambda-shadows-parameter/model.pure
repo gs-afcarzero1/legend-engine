@@ -1,0 +1,149 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+
+###Pure
+Class shadowParam::model::Source
+{
+  id: String[1];
+  kind: String[1];
+  tags: String[*];
+  prefixed(t: String[1]) {$this.tags->map(t | $t + '-')->joinStrings($t)}: String[1];
+}
+
+Class shadowParam::model::Target
+{
+  id: String[1];
+  matchShadow: String[1];
+  mapShadow: String[*];
+  qualifiedShadow: String[1];
+  foldShadow: String[1];
+  nestedShadow: String[*];
+  prefixed(t: String[1]) {$this.mapShadow->map(t | $t + '-')->joinStrings($t)}: String[1];
+  prefixedList(t: String[1]) {$this.mapShadow->map(t | $t + '-')->joinStrings($t)}: String[*];
+}
+
+function shadowParam::model::matchShadow(s: shadowParam::model::Source[1]): String[1]
+{
+  $s.kind->match([s: String[1] | 'inner-' + $s]);
+}
+
+function shadowParam::model::mapShadow(t: shadowParam::model::Source[1]): String[*]
+{
+  $t.tags->map(t | $t + 'x');
+}
+
+function shadowParam::model::foldShadow(t: shadowParam::model::Source[1]): String[1]
+{
+  $t.tags->fold({t, t_1 | $t + $t_1}, '');
+}
+
+function shadowParam::model::nestedShadow(t: shadowParam::model::Source[1]): String[*]
+{
+  let t_1 = 'outer';
+  $t.tags->map(t | [$t]->map(t_1 | $t + $t_1)->joinStrings('') + $t_1);
+}
+
+
+###Mapping
+Mapping shadowParam::mapping::SourceToTarget
+(
+  *shadowParam::model::Target: Pure
+  {
+    ~src shadowParam::model::Source
+    id: $src.id,
+    matchShadow: $src->shadowParam::model::matchShadow(),
+    mapShadow: $src->shadowParam::model::mapShadow(),
+    qualifiedShadow: $src.prefixed('|'),
+    foldShadow: $src->shadowParam::model::foldShadow(),
+    nestedShadow: $src->shadowParam::model::nestedShadow()
+  }
+)
+
+
+###Runtime
+Runtime shadowParam::runtime::SourceRuntime
+{
+  mappings:
+  [
+    shadowParam::mapping::SourceToTarget
+  ];
+  connections:
+  [
+    ModelStore:
+    [
+      json:
+      #{
+        JsonModelConnection
+        {
+          class: shadowParam::model::Source;
+          url: 'executor:default';
+        }
+      }#
+    ]
+  ];
+}
+
+
+###Service
+Service shadowParam::service::ShadowService
+{
+  pattern: '/shadowParam';
+  documentation: 'M2M Service Whose Lambda Parameters Reuse the Function Parameter Name';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: |shadowParam::model::Target.all()->graphFetch(#{shadowParam::model::Target{id,matchShadow,mapShadow,qualifiedShadow,foldShadow,nestedShadow,prefixed('|'),prefixedList('|')}}#)->serialize(#{shadowParam::model::Target{id,matchShadow,mapShadow,qualifiedShadow,foldShadow,nestedShadow,prefixed('|'),prefixedList('|')}}#);
+    mapping: shadowParam::mapping::SourceToTarget;
+    runtime: shadowParam::runtime::SourceRuntime;
+  }
+  testSuites:
+  [
+    shadowing:
+    {
+      data:
+      [
+        connections:
+        [
+          json:
+            ExternalFormat
+            #{
+              contentType: 'application/json';
+              data: '[{"id":"r1","kind":"a","tags":["t1","t2"]},{"id":"r2","kind":"b","tags":[]}]';
+            }#
+        ]
+      ]
+      tests:
+      [
+        generatedJavaCompiles:
+        {
+          serializationFormat: PURE;
+          asserts:
+          [
+            valuesMatch:
+              EqualToJson
+              #{
+                expected:
+                  ExternalFormat
+                  #{
+                    contentType: 'application/json';
+                    data: '[{"id":"r1","matchShadow":"inner-a","mapShadow":["t1x","t2x"],"qualifiedShadow":"t1-|t2-","foldShadow":"t2t1","nestedShadow":["t1t1outer","t2t2outer"],"prefixed(\'|\')":"t1x-|t2x-","prefixedList(\'|\')":["t1x-|t2x-"]},{"id":"r2","matchShadow":"inner-b","mapShadow":[],"qualifiedShadow":"","foldShadow":"","nestedShadow":[],"prefixed(\'|\')":"","prefixedList(\'|\')":[""]}]';
+                  }#;
+              }#
+          ]
+        }
+      ]
+    }
+  ]
+}

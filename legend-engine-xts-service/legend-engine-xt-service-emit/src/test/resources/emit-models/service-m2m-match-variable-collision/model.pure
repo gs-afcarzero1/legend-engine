@@ -27,6 +27,8 @@ Class collide::model::Target
   letX: String[1];
   paramO: String[1];
   letXAnd: Boolean[1];
+  letXOr: Boolean[1];
+  paramXDistinct: Boolean[1];
 }
 
 function collide::model::letO(s: collide::model::Source[1]): String[1]
@@ -58,6 +60,17 @@ function collide::model::letXAnd(s: collide::model::Source[1]): Boolean[1]
   [$x, $s.id == 'r1']->and();
 }
 
+function collide::model::letXOr(s: collide::model::Source[1]): Boolean[1]
+{
+  let x = $s.kind == 'a';
+  [$x, $s.id == 'r2']->or();
+}
+
+function collide::model::paramXDistinct(x: collide::model::Source[1]): Boolean[1]
+{
+  [$x, $x]->isDistinct(#{collide::model::Source{id}}#);
+}
+
 
 ###Mapping
 Mapping collide::mapping::SourceToTarget
@@ -70,7 +83,9 @@ Mapping collide::mapping::SourceToTarget
     letM: $src->collide::model::letM(),
     letX: $src->collide::model::letX(),
     paramO: $src->collide::model::paramO(),
-    letXAnd: $src->collide::model::letXAnd()
+    letXAnd: $src->collide::model::letXAnd(),
+    letXOr: $src->collide::model::letXOr(),
+    paramXDistinct: $src->collide::model::paramXDistinct()
   }
 )
 
@@ -107,7 +122,7 @@ Service collide::service::CollisionService
   autoActivateUpdates: true;
   execution: Single
   {
-    query: |collide::model::Target.all()->graphFetch(#{collide::model::Target{id,letO,letM,letX,paramO,letXAnd}}#)->serialize(#{collide::model::Target{id,letO,letM,letX,paramO,letXAnd}}#);
+    query: |collide::model::Target.all()->graphFetch(#{collide::model::Target{id,letO,letM,letX,paramO,letXAnd,letXOr,paramXDistinct}}#)->serialize(#{collide::model::Target{id,letO,letM,letX,paramO,letXAnd,letXOr,paramXDistinct}}#);
     mapping: collide::mapping::SourceToTarget;
     runtime: collide::runtime::SourceRuntime;
   }
@@ -141,7 +156,7 @@ Service collide::service::CollisionService
                   ExternalFormat
                   #{
                     contentType: 'application/json';
-                    data: '[{"id":"r1","letO":"o-a","letM":"m-a","letX":"x-a","paramO":"p-a","letXAnd":true},{"id":"r2","letO":"o-b","letM":"m-b","letX":"x-b","paramO":"p-b","letXAnd":false}]';
+                    data: '[{"id":"r1","letO":"o-a","letM":"m-a","letX":"x-a","paramO":"p-a","letXAnd":true,"letXOr":true,"paramXDistinct":false},{"id":"r2","letO":"o-b","letM":"m-b","letX":"x-b","paramO":"p-b","letXAnd":false,"letXOr":true,"paramXDistinct":false}]';
                   }#;
               }#
           ]

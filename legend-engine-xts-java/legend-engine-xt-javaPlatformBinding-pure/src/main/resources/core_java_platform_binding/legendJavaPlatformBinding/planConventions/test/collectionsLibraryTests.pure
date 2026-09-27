@@ -91,19 +91,19 @@ function <<meta::pure::profiles::test.Test, meta::pure::profiles::test.AlloyOnly
 meta::pure::executionPlan::platformBinding::legendJava::library::collection::tests::testBooleanCombinators() : Boolean[1]
 {
    javaExpressionTests(engineConventions([]))
-      ->addTest('And true', {|[true,true]->and()}, 'java.util.Arrays.asList(true, true).stream().reduce(true, (Boolean x, Boolean y) -> x && y)', javaBoolean())
+      ->addTest('And true', {|[true,true]->and()}, 'java.util.Arrays.asList(true, true).stream().reduce(true, (Boolean $x, Boolean $y) -> $x && $y)', javaBoolean())
          ->assert('%s == true')
-      ->addTest('And false', {|[true,false]->and()}, 'java.util.Arrays.asList(true, false).stream().reduce(true, (Boolean x, Boolean y) -> x && y)', javaBoolean())
+      ->addTest('And false', {|[true,false]->and()}, 'java.util.Arrays.asList(true, false).stream().reduce(true, (Boolean $x, Boolean $y) -> $x && $y)', javaBoolean())
          ->assert('%s == false')
-      ->addTest('And false2', {|[false,false]->and()}, 'java.util.Arrays.asList(false, false).stream().reduce(true, (Boolean x, Boolean y) -> x && y)', javaBoolean())
+      ->addTest('And false2', {|[false,false]->and()}, 'java.util.Arrays.asList(false, false).stream().reduce(true, (Boolean $x, Boolean $y) -> $x && $y)', javaBoolean())
          ->assert('%s == false')
-      ->addTest('And empty', {|[]->and()}, 'java.util.Collections.emptyList().stream().map(Boolean.class::cast).reduce(true, (Boolean x, Boolean y) -> x && y)', javaBoolean())
+      ->addTest('And empty', {|[]->and()}, 'java.util.Collections.emptyList().stream().map(Boolean.class::cast).reduce(true, (Boolean $x, Boolean $y) -> $x && $y)', javaBoolean())
          ->assert('%s == true')
-      ->addTest('Or true (t, t)', {|[true,true]->or()}, 'java.util.Arrays.asList(true, true).stream().reduce(false, (Boolean x, Boolean y) -> x || y)', javaBoolean())
+      ->addTest('Or true (t, t)', {|[true,true]->or()}, 'java.util.Arrays.asList(true, true).stream().reduce(false, (Boolean $x, Boolean $y) -> $x || $y)', javaBoolean())
          ->assert('%s == true')
-      ->addTest('Or true (t, f)', {|[true,false]->or()}, 'java.util.Arrays.asList(true, false).stream().reduce(false, (Boolean x, Boolean y) -> x || y)', javaBoolean())
+      ->addTest('Or true (t, f)', {|[true,false]->or()}, 'java.util.Arrays.asList(true, false).stream().reduce(false, (Boolean $x, Boolean $y) -> $x || $y)', javaBoolean())
          ->assert('%s == true')
-      ->addTest('Or false (f, f)', {|[false,false]->or()}, 'java.util.Arrays.asList(false, false).stream().reduce(false, (Boolean x, Boolean y) -> x || y)', javaBoolean())
+      ->addTest('Or false (f, f)', {|[false,false]->or()}, 'java.util.Arrays.asList(false, false).stream().reduce(false, (Boolean $x, Boolean $y) -> $x || $y)', javaBoolean())
          ->assert('%s == false')
       ->runTests();
 }

@@ -32,20 +32,25 @@ function meta::external::language::java::transform::generateJavaMethodBody(vses:
 
 function meta::external::language::java::transform::generateJavaMethodBody(vses:ValueSpecification[*], conventions: Conventions[1], debug: DebugContext[1]):Code[1]
 {
-   assert($vses->isNotEmpty(), 'Method body must have at least one expression');
-   let cleanConventions = ^$conventions(
-      providedVariables = ^Map<String,Code>(),
-      variablesInScope  = []
-   );
-   $vses->statementsForBlock($cleanConventions, $debug)->j_block();
+   generateJavaMethodBody($vses, $conventions, [], $debug);
 }
 
-function meta::external::language::java::transform::generateJavaMethodBody(vses: ValueSpecification[*], conventions: Conventions[1], returnType:meta::external::language::java::metamodel::Type[1], debug: DebugContext[1]):Code[1]
+function <<access.private>> meta::external::language::java::transform::generateJavaMethodBody(vses:ValueSpecification[*], conventions: Conventions[1], parameterNames: String[*], debug: DebugContext[1]):Code[1]
 {
    assert($vses->isNotEmpty(), 'Method body must have at least one expression');
    let cleanConventions = ^$conventions(
       providedVariables = ^Map<String,Code>(),
-      variablesInScope  = []
+      variablesInScope  = $parameterNames
+   );
+   $vses->statementsForBlock($cleanConventions, $debug)->j_block();
+}
+
+function meta::external::language::java::transform::generateJavaMethodBody(vses: ValueSpecification[*], conventions: Conventions[1], returnType:meta::external::language::java::metamodel::Type[1], parameterNames: String[*], debug: DebugContext[1]):Code[1]
+{
+   assert($vses->isNotEmpty(), 'Method body must have at least one expression');
+   let cleanConventions = ^$conventions(
+      providedVariables = ^Map<String,Code>(),
+      variablesInScope  = $parameterNames
    );
    $vses->statementsForBlock($cleanConventions, $returnType, $debug)->j_block();
 }
@@ -58,9 +63,18 @@ function <<access.private>> meta::external::language::java::transform::statement
 function <<access.private>> meta::external::language::java::transform::statementsForBlock(vses:ValueSpecification[*], conventions: Conventions[1], returnType:meta::external::language::java::metamodel::Type[0..1], debug: DebugContext[1]):Code[*]
 {
    let generated = $vses->toIndexed()
-      			->map(z| print(if($debug.debug,|$debug.space+'statementsForBlock - processing expression '+$z.first->toString()+'\n',|''));
-               			let x = $z.second;
-               			$x->generateJavaInternal($conventions, $debug););
+      ->fold({z, acc |
+                 print(if($debug.debug,|$debug.space+'statementsForBlock - processing expression '+$z.first->toString()+'\n',|''));
+                 let x    = $z.second;
+                 let next = if($x->meta::pure::router::utils::isLetFunction(),
+                               | $acc.second->addVariablesInScope($acc.second->identifier($x->cast(@FunctionExpression).parametersValues->at(0)->cast(@InstanceValue).values->toOne()->cast(@String))),
+                               | $acc.second
+                            );
+                 let code = $x->generateJavaInternal($next, $debug);
+                 pair(list($acc.first.values->concatenate($code)), $next);
+              },
+              pair(list([]->cast(@Code)), $conventions)
+      ).first.values;
    $generated->match([
          {c0: Code[0] | []},
          {cs: Code[*] |
@@ -199,10 +213,12 @@ function <<access.private>> meta::external::language::java::transform::processVa
 
 function meta::external::language::java::transform::processLambda(l:LambdaFunction<Any>[1], conventions: Conventions[1], debug: meta::pure::tools::DebugContext[1]):Code[1]
 {
-    let keyedParameters = $l.classifierGenericType.typeArguments.rawType->cast(@meta::pure::metamodel::type::FunctionType).parameters->map(p|
-       let baseParam  = $p->processVariableExpressionAsParameter($conventions, $debug->indent());
+    let baseParams = $l.classifierGenericType.typeArguments.rawType->cast(@meta::pure::metamodel::type::FunctionType).parameters->map(p | $p->processVariableExpressionAsParameter($conventions, $debug->indent()));
+    let keys       = $baseParams->map(b | $b->variableName());
+    let keyedParameters = $baseParams->map(baseParam|
        let key        = $baseParam->variableName();
-       let emitted    = if($key == 'this', |$key, |uniqueVariableName($key, $conventions.variablesInScope));
+       // a renamed parameter must not take the name of another parameter of the same lambda
+       let emitted    = if($key == 'this', |$key, |uniqueVariableName($key, $conventions.variablesInScope->concatenate($keys->filter(k | $k != $key))));
        let finalParam = if($emitted == $key, |$baseParam, |j_parameter($baseParam.type, $emitted));
        pair($key, $finalParam);
     );
@@ -353,7 +369,7 @@ function <<access.private>> meta::external::language::java::transform::processCo
            |print(if($debug.debug,|$debug.space+'Implementation of: \''+$fe.func->elementToPath()+'\'\n',|''));
            let updatedState = $state->addDependencyVisitedFunction($fe.func->elementToPath());
             
-            let implBody    = $fe.func->cast(@ConcreteFunctionDefinition<Any>).expressionSequence->evaluateAndDeactivate()->generateJavaMethodBody($newCon, $signature.method.returnType, $debug->indent());
+            let implBody    = $fe.func->cast(@ConcreteFunctionDefinition<Any>).expressionSequence->evaluateAndDeactivate()->generateJavaMethodBody($newCon, $signature.method.returnType, $signature.method.parameters.name, $debug->indent());
             let classesUsed = $signature.method->typesUsed()
                                 ->typesToClasses()
                                 ->filter(c | !meta::external::language::java::factory::isKnownPackage($c.package))
