@@ -504,7 +504,7 @@ function <<access.private>> meta::pure::lineage::scanProperties::processLambdaFu
   let fromParams = makeScanPropertiesState(emptyPath(), $paramPaths.result, $visitedFunctions);
 
   let funcParamNodes=   if($addFunctionParamClasses,
-    |  let funcParamClasses = $fn->functionType().parameters.genericType.rawType ->cast(@Class<Any>);
+    |  let funcParamClasses = $fn->functionType().parameters.genericType.rawType->filter(t | $t->instanceOf(Class))->cast(@Class<Any>);
         list($funcParamClasses -> map(c|$c->dummyNodeForClass()));,
     | [] 
     );
@@ -527,7 +527,7 @@ function <<access.private>> meta::pure::lineage::scanProperties::processFunction
     f:Function<Any>[1]    | if($f.name->isEmpty() || !isPackageOk($f),
                               | processLambdaFunction($f, $paramPaths, $vars, $processed, $config, $visitedFunctions, $debug, $addFunctionParamClasses);,
                               | let funcParamNodes = if($addFunctionParamClasses,
-                                  |  let funcParamClasses = $f->functionType().parameters.genericType.rawType ->cast(@Class<Any>);
+                                  |  let funcParamClasses = $f->functionType().parameters.genericType.rawType->filter(t | $t->instanceOf(Class))->cast(@Class<Any>);
                                      list($funcParamClasses -> map(c|$c->dummyNodeForClass()));,
                                   | [] 
                                 );

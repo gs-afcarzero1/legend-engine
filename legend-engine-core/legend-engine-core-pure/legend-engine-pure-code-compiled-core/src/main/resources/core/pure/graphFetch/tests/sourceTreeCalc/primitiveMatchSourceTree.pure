@@ -1,0 +1,45 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+###Pure
+import meta::pure::graphFetch::*;
+import meta::pure::lineage::scanProperties::test::primitiveMatch::*;
+
+Class meta::pure::lineage::scanProperties::test::primitiveMatch::Src { id: String[1]; kind: String[1]; }
+Class meta::pure::lineage::scanProperties::test::primitiveMatch::Tgt { id: String[1]; label: String[1]; }
+function meta::pure::lineage::scanProperties::test::primitiveMatch::labelOf(s: Src[1]): String[1] { $s.kind->match([k: String[1] | 'kind-' + $k]) }
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::primitiveMatch::testMatchOnPrimitiveInTransform():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Tgt{id,label}}#, inlineMatch, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Src{id, kind}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::primitiveMatch::testMatchOnPrimitiveInHelper():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Tgt{id,label}}#, helperMatch, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Src{id, kind}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+###Mapping
+import meta::pure::lineage::scanProperties::test::primitiveMatch::*;
+Mapping meta::pure::lineage::scanProperties::test::primitiveMatch::inlineMatch
+(
+  Tgt: Pure { ~src Src id: $src.id, label: $src.kind->match([k: String[1] | 'kind-' + $k]) }
+)
+
+Mapping meta::pure::lineage::scanProperties::test::primitiveMatch::helperMatch
+(
+  Tgt: Pure { ~src Src id: $src.id, label: $src->labelOf() }
+)
