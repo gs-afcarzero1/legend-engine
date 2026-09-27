@@ -753,8 +753,8 @@ function <<access.private>> meta::pure::graphFetch::getSubTreeNodesAtPath(srcNod
 
 function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeForExpression(srcNode:GraphFetchTree[1], exprThisClass:Class<Any>[1], expression:ValueSpecification[1]): GraphFetchTree[1]
 {
-   // Scan classes as property transforms do, so a cast or match branch on $src keeps its subtype.
-   let propertyPath = $expression->evaluateAndDeactivate()->scanProperties(noDebug(), ^ScanConfig(scanClasses=true, explodeMilestonedProperties=true));
+   // Scan like property transforms, so a cast or match branch on $src keeps its subtype and every alternative is read.
+   let propertyPath = $expression->evaluateAndDeactivate()->scanProperties(noDebug(), ^ScanConfig(scanClasses=true, explodeMilestonedProperties=true, captureConditionalTerminals=true));
    $srcNode->enrichSourceTreeNodeForPropertyPath($exprThisClass, $propertyPath);
 }
 

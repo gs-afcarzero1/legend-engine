@@ -1,0 +1,295 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Source trees for M2M transforms that navigate through collection functions, function
+// arguments, helper functions and values that may come from several paths.
+import meta::pure::graphFetch::*;
+import meta::pure::lineage::scanProperties::test::functionNavigation::*;
+
+Class meta::pure::lineage::scanProperties::test::functionNavigation::Leaf
+{
+  id: String[1];
+  label: String[1];
+  rank: Integer[1];
+  kids: Leaf[*];
+  tagged(prefix:String[1]) { $prefix + $this.label + $this.kids.label->joinStrings('') }: String[1];
+}
+Class meta::pure::lineage::scanProperties::test::functionNavigation::Sub extends Leaf { code: String[1]; }
+Class meta::pure::lineage::scanProperties::test::functionNavigation::Src
+{
+  id: String[1];
+  flag: Boolean[1];
+  index: Integer[1];
+  end: Integer[1];
+  name: String[1];
+  one: Leaf[1];
+  two: Leaf[1];
+  many: Leaf[*];
+}
+Class meta::pure::lineage::scanProperties::test::functionNavigation::Tgt { id: String[1]; s: String[*]; n: Integer[*]; b: Boolean[0..1]; kid: TgtKid[*]; }
+Class meta::pure::lineage::scanProperties::test::functionNavigation::TgtKid { name: String[1]; }
+function meta::pure::lineage::scanProperties::test::functionNavigation::pick(s:Src[1]):Leaf[1] { if($s.flag, |$s.one, |$s.two) }
+function meta::pure::lineage::scanProperties::test::functionNavigation::labels(ls:Leaf[*]):String[*] { $ls.label }
+function meta::pure::lineage::scanProperties::test::functionNavigation::both(s:Src[1]):Leaf[*] { $s.one->concatenate($s.two) }
+function meta::pure::lineage::scanProperties::test::functionNavigation::letBoth(s:Src[1]):String[*] { let xs = $s.one->concatenate($s.two); $xs.label; }
+function meta::pure::lineage::scanProperties::test::functionNavigation::letPick(s:Src[1]):String[1] { let l = if($s.flag, |$s.one, |$s.two); $l.label; }
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::functionNavigation::testAtIndexArgument():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Tgt{id,s}}#, E01, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Src{id, index, many{label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::functionNavigation::testCollectionLiteralNavigation():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Tgt{id,s}}#, E05, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Src{id, one{label}, two{label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::functionNavigation::testConcatenateNavigation():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Tgt{id,s}}#, E06, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Src{id, one{label}, two{label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::functionNavigation::testFoldAccumulator():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Tgt{id,n}}#, E12, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Src{id, index, many{rank}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::functionNavigation::testFilterCapturingSource():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Tgt{id,s}}#, E14, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Src{id, index, many{label, rank}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::functionNavigation::testQualifiedPropertyArgument():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Tgt{id,s}}#, E20, meta::pure::extension::defaultExtensions());
+  assertEquals('Src\n(\n  id\n  name\n  one [requires: tagged]\n  (\n    kids\n    (\n      label\n    )\n    label\n  )\n)', $actual->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::functionNavigation::testMatchNavigation():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Tgt{id,s}}#, E24, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Src{id, one{label}, two{label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::functionNavigation::testHelperConcatenateNavigation():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Tgt{id,s}}#, E35, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Src{id, one{label}, two{label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::functionNavigation::testChildOverConcatenate():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Tgt{id,kid{name}}}#, K01, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Src{id, one{label}, two{label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::functionNavigation::testLetKeepsEveryOrigin():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Tgt{id,s}}#, E41, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Src{id, one{label}, two{label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::functionNavigation::testLetKeepsEveryBranch():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Tgt{id,s}}#, E42, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Src{flag, id, one{label}, two{label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::functionNavigation::testHelperArgumentKeepsEveryOrigin():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Tgt{id,s}}#, E43, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Src{id, one{label}, two{label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::functionNavigation::testHelperArgumentFromConditional():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Tgt{id,s}}#, E44, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Src{flag, id, one{label}, two{label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::lineage::scanProperties::test::functionNavigation::testChildOverHelperConditional():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Tgt{id,kid{name}}}#, K06, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Src{flag, id, one{label}, two{label}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+###Mapping
+import meta::pure::lineage::scanProperties::test::functionNavigation::*;
+Mapping meta::pure::lineage::scanProperties::test::functionNavigation::E01
+(
+  Tgt: Pure
+  {
+    ~src Src
+    id: $src.id,
+    s: $src.many->at($src.index).label
+  }
+)
+###Mapping
+import meta::pure::lineage::scanProperties::test::functionNavigation::*;
+Mapping meta::pure::lineage::scanProperties::test::functionNavigation::E05
+(
+  Tgt: Pure
+  {
+    ~src Src
+    id: $src.id,
+    s: [$src.one, $src.two].label
+  }
+)
+###Mapping
+import meta::pure::lineage::scanProperties::test::functionNavigation::*;
+Mapping meta::pure::lineage::scanProperties::test::functionNavigation::E06
+(
+  Tgt: Pure
+  {
+    ~src Src
+    id: $src.id,
+    s: $src.one->concatenate($src.two).label
+  }
+)
+###Mapping
+import meta::pure::lineage::scanProperties::test::functionNavigation::*;
+Mapping meta::pure::lineage::scanProperties::test::functionNavigation::E12
+(
+  Tgt: Pure
+  {
+    ~src Src
+    id: $src.id,
+    n: $src.many->fold({l, acc | $acc + $l.rank}, $src.index)
+  }
+)
+###Mapping
+import meta::pure::lineage::scanProperties::test::functionNavigation::*;
+Mapping meta::pure::lineage::scanProperties::test::functionNavigation::E14
+(
+  Tgt: Pure
+  {
+    ~src Src
+    id: $src.id,
+    s: $src.many->filter(l | $l.rank > $src.index).label
+  }
+)
+###Mapping
+import meta::pure::lineage::scanProperties::test::functionNavigation::*;
+Mapping meta::pure::lineage::scanProperties::test::functionNavigation::E20
+(
+  Tgt: Pure
+  {
+    ~src Src
+    id: $src.id,
+    s: $src.one.tagged($src.name)
+  }
+)
+###Mapping
+import meta::pure::lineage::scanProperties::test::functionNavigation::*;
+Mapping meta::pure::lineage::scanProperties::test::functionNavigation::E24
+(
+  Tgt: Pure
+  {
+    ~src Src
+    id: $src.id,
+    s: $src.one->match([x:Sub[1] | $x, l:Leaf[1] | $src.two]).label
+  }
+)
+###Mapping
+import meta::pure::lineage::scanProperties::test::functionNavigation::*;
+Mapping meta::pure::lineage::scanProperties::test::functionNavigation::E35
+(
+  Tgt: Pure
+  {
+    ~src Src
+    id: $src.id,
+    s: $src->meta::pure::lineage::scanProperties::test::functionNavigation::both().label
+  }
+)
+###Mapping
+import meta::pure::lineage::scanProperties::test::functionNavigation::*;
+Mapping meta::pure::lineage::scanProperties::test::functionNavigation::E41
+(
+  Tgt: Pure
+  {
+    ~src Src
+    id: $src.id,
+    s: $src->letBoth()
+  }
+)
+###Mapping
+import meta::pure::lineage::scanProperties::test::functionNavigation::*;
+Mapping meta::pure::lineage::scanProperties::test::functionNavigation::E42
+(
+  Tgt: Pure
+  {
+    ~src Src
+    id: $src.id,
+    s: $src->letPick()
+  }
+)
+###Mapping
+import meta::pure::lineage::scanProperties::test::functionNavigation::*;
+Mapping meta::pure::lineage::scanProperties::test::functionNavigation::E43
+(
+  Tgt: Pure
+  {
+    ~src Src
+    id: $src.id,
+    s: labels($src.one->concatenate($src.two))
+  }
+)
+###Mapping
+import meta::pure::lineage::scanProperties::test::functionNavigation::*;
+Mapping meta::pure::lineage::scanProperties::test::functionNavigation::E44
+(
+  Tgt: Pure
+  {
+    ~src Src
+    id: $src.id,
+    s: labels(pick($src))
+  }
+)
+###Mapping
+import meta::pure::lineage::scanProperties::test::functionNavigation::*;
+Mapping meta::pure::lineage::scanProperties::test::functionNavigation::K01
+(
+  *Tgt: Pure
+  {
+    ~src Src
+    id: $src.id,
+    kid[k]: $src.one->concatenate($src.two)
+  }
+  TgtKid[k]: Pure
+  {
+    ~src Leaf
+    name: $src.label
+  }
+)
+###Mapping
+import meta::pure::lineage::scanProperties::test::functionNavigation::*;
+Mapping meta::pure::lineage::scanProperties::test::functionNavigation::K06
+(
+  *Tgt: Pure
+  {
+    ~src Src
+    id: $src.id,
+    kid[k]: $src->meta::pure::lineage::scanProperties::test::functionNavigation::pick()
+  }
+  TgtKid[k]: Pure
+  {
+    ~src Leaf
+    name: $src.label
+  }
+)

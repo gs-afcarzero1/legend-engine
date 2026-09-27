@@ -1,0 +1,25 @@
+name: m2m-source-tree-function-arguments
+title: "M2M Transforms That Read the Source Through Function Arguments"
+description: |
+  A model-to-model mapping whose transforms read source properties only as
+  arguments of other functions: an index for at, the bounds of slice, the initial
+  accumulator of fold and the parameter of a qualified property. A child mapping
+  is fed by a concatenation of two source properties. The source tree must request
+  every one of those properties, or the generated Java has no getter for them. The
+  test executes the mapping over ModelStore data.
+
+modelSources:
+  model:
+    root: m2m-source-tree-function-arguments
+    files:
+      - model.pure
+
+features:
+  - execution:test-data
+  - mapping:mapping
+stores: []
+complexity: basic
+tags:
+  - m2m
+  - source-tree
+  - collection-functions
