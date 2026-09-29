@@ -1,0 +1,147 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+###Pure
+Class demo::m2m::constructorCurrent::filter::Leaf { id: String[1]; rank: Integer[1]; }
+Class demo::m2m::constructorCurrent::filter::Source { aDecoy: demo::m2m::constructorCurrent::filter::Leaf[1]; elements: demo::m2m::constructorCurrent::filter::Leaf[*]; }
+Class demo::m2m::constructorCurrent::filter::Box { ft: demo::m2m::constructorCurrent::filter::Leaf[1]; }
+Class demo::m2m::constructorCurrent::filter::Target { targets: demo::m2m::constructorCurrent::filter::Item[*]; }
+Class demo::m2m::constructorCurrent::filter::Item { id: String[1]; }
+
+###Relational
+Database demo::m2m::constructorCurrent::filter::DB
+(
+  Table SOURCE (ROW_ID INTEGER PRIMARY KEY, DECOY_ID INTEGER)
+  Table LEAF (ROW_ID INTEGER PRIMARY KEY, SOURCE_ID INTEGER, CODE VARCHAR(30), RANK INTEGER)
+  Join SourceDecoy(SOURCE.DECOY_ID = LEAF.ROW_ID)
+  Join SourceElements(SOURCE.ROW_ID = LEAF.SOURCE_ID)
+)
+
+###Data
+Data demo::m2m::constructorCurrent::filter::Rows
+{
+  Relational
+  #{
+    default.SOURCE: 'ROW_ID,DECOY_ID\n1,10\n';
+    default.LEAF: 'ROW_ID,SOURCE_ID,CODE,RANK\n10,99,DECOY,5\n20,1,E1,1\n30,1,E2,2\n';
+  }#
+}
+
+###Mapping
+Mapping demo::m2m::constructorCurrent::filter::Relational
+(
+  demo::m2m::constructorCurrent::filter::Source: Relational
+  {
+    ~primaryKey ([demo::m2m::constructorCurrent::filter::DB]SOURCE.ROW_ID)
+    ~mainTable [demo::m2m::constructorCurrent::filter::DB]SOURCE
+    aDecoy: [demo::m2m::constructorCurrent::filter::DB]@SourceDecoy,
+    elements: [demo::m2m::constructorCurrent::filter::DB]@SourceElements
+  }
+  demo::m2m::constructorCurrent::filter::Leaf: Relational
+  {
+    ~primaryKey ([demo::m2m::constructorCurrent::filter::DB]LEAF.ROW_ID)
+    ~mainTable [demo::m2m::constructorCurrent::filter::DB]LEAF
+    id: [demo::m2m::constructorCurrent::filter::DB]LEAF.CODE,
+    rank: [demo::m2m::constructorCurrent::filter::DB]LEAF.RANK
+  }
+)
+Mapping demo::m2m::constructorCurrent::filter::Transform
+(
+  *demo::m2m::constructorCurrent::filter::Target: Pure
+  {
+    ~src demo::m2m::constructorCurrent::filter::Source
+    targets[item]: $src.elements->map(e | ^demo::m2m::constructorCurrent::filter::Box(ft=$e))
+  }
+  demo::m2m::constructorCurrent::filter::Item[item]: Pure
+  {
+    ~src demo::m2m::constructorCurrent::filter::Box
+    ~filter $src.ft.rank > 1
+    id: $src.ft.id
+  }
+)
+
+###Connection
+RelationalDatabaseConnection demo::m2m::constructorCurrent::filter::H2
+{
+  store: demo::m2m::constructorCurrent::filter::DB;
+  type: H2;
+  specification: LocalH2 { };
+  auth: DefaultH2;
+}
+ModelChainConnection demo::m2m::constructorCurrent::filter::Chain
+{
+  mappings: [demo::m2m::constructorCurrent::filter::Relational];
+}
+
+###Runtime
+Runtime demo::m2m::constructorCurrent::filter::TransformRuntime
+{
+  mappings: [ demo::m2m::constructorCurrent::filter::Transform ];
+  connections:
+  [
+    ModelStore: [ chain: demo::m2m::constructorCurrent::filter::Chain ],
+    demo::m2m::constructorCurrent::filter::DB: [ h2: demo::m2m::constructorCurrent::filter::H2 ]
+  ];
+}
+
+###Service
+Service demo::m2m::constructorCurrent::filter::TransformService
+{
+  pattern: '/constructorCurrent/filter';
+  documentation: 'Child class filter reads the constructed source';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: |demo::m2m::constructorCurrent::filter::Target.all()->graphFetch(#{demo::m2m::constructorCurrent::filter::Target{targets{id}}}#)->serialize(#{demo::m2m::constructorCurrent::filter::Target{targets{id}}}#);
+    mapping: demo::m2m::constructorCurrent::filter::Transform;
+    runtime: demo::m2m::constructorCurrent::filter::TransformRuntime;
+  }
+  testSuites:
+  [
+    s:
+    {
+      data:
+      [
+        connections:
+        [
+          h2:
+            Reference
+            #{
+              demo::m2m::constructorCurrent::filter::Rows
+            }#
+        ]
+      ]
+      tests:
+      [
+        t:
+        {
+          serializationFormat: PURE;
+          asserts:
+          [
+            expected:
+              EqualToJson
+              #{
+                expected:
+                  ExternalFormat
+                  #{
+                    contentType: 'application/json';
+                    data: '{"targets":[{"id":"E2"}]}';
+                  }#;
+              }#
+          ]
+        }
+      ]
+    }
+  ]
+}

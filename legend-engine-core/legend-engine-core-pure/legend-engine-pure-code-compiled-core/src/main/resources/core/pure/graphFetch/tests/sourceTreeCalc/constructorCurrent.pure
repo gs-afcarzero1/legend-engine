@@ -92,3 +92,26 @@ Mapping meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::alter
   *Target: Pure { ~src Source item[item]: ^Box(ft=if($src.choice == 'primary', |$src.primary, |$src.secondary)) }
   Item[item]: Pure { ~src Box ids: $src.ft.id }
 )
+
+###Pure
+import meta::pure::graphFetch::*;
+import meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::filter::*;
+Class meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::filter::Leaf { id: String[1]; rank: Integer[1]; }
+Class meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::filter::Source { aDecoy: Leaf[1]; elements: Leaf[*]; }
+Class meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::filter::Box { ft: Leaf[1]; }
+Class meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::filter::Target { targets: Item[*]; }
+Class meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::filter::Item { id: String[1]; }
+
+function <<test.Test>> meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::filter::testChildFilterReadsThroughConstructedCurrent():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {targets {id}}}#, filterMapping, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Source {elements {id, rank}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+###Mapping
+import meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::filter::*;
+Mapping meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::filter::filterMapping
+(
+  *Target: Pure { ~src Source targets[item]: $src.elements->map(e | ^Box(ft=$e)) }
+  Item[item]: Pure { ~src Box ~filter $src.ft.rank > 1 id: $src.ft.id }
+)

@@ -774,6 +774,12 @@ function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeForExpre
    $srcNode->enrichSourceTreeNodeForPropertyPath($exprThisClass, $propertyPath);
 }
 
+function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeForBoundFilter(srcNode:GraphFetchTree[1], owner:Class<Any>[1], filter:FunctionDefinition<Any>[1], srcBinding:List<PropertyPathNode>[1], visitedFunctions:Map<String,ScanPropertiesState>[1]): GraphFetchTree[1]
+{
+   let propertyPath = $filter.expressionSequence->at(0)->evaluateAndDeactivate()->scanProperties(noDebug(), ^ScanConfig(scanClasses=false, explodeMilestonedProperties=true, resolveConstructedInstances=true), $visitedFunctions, $filter->sourceBindingVars($srcBinding));
+   $srcNode->enrichSourceTreeNodeForPropertyPath($owner, $propertyPath);
+}
+
 function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeForPropertyPath(srcNode:GraphFetchTree[1], baseClass:Class<Any>[1], propertyPath:ScanPropertiesState[0..1]): GraphFetchTree[1]
 {
    let inlinedPropertyTree        = $propertyPath.result->buildPropertyTree()->inlineQualifiedPropertyNodes();
@@ -814,9 +820,12 @@ function meta::pure::graphFetch::enrichSourceTreeNode(srcNode:GraphFetchTree[1],
    let srcNodeOwner = $srcNode->typeFromGraphFetchTree().rawType->toOne();
 
    let subTreesRefined =
-   if($srcClass->instanceOf(Class) && $setImplementation.filter->isNotEmpty() && $srcClass == $srcNodeOwner,
-      | $subTrees.first->enrichSourceTreeNodeForExpression($srcClass->cast(@Class<Any>), $setImplementation.filter.expressionSequence->at(0)),
-      | $subTrees.first
+   if($srcBinding->isNotEmpty() && $setImplementation.filter->isNotEmpty() && $srcNodeOwner->instanceOf(Class),
+      | $subTrees.first->enrichSourceTreeNodeForBoundFilter($srcNodeOwner->cast(@Class<Any>), $setImplementation.filter->toOne(), $srcBinding->toOne(), $subTrees.second),
+      | if($srcClass->instanceOf(Class) && $setImplementation.filter->isNotEmpty() && $srcClass == $srcNodeOwner,
+           | $subTrees.first->enrichSourceTreeNodeForExpression($srcClass->cast(@Class<Any>), $setImplementation.filter.expressionSequence->at(0)),
+           | $subTrees.first
+        )
    );
    pair($subTreesRefined, $subTrees.second);
 }
