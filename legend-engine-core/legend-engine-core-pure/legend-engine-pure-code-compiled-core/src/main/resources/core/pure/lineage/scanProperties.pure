@@ -397,7 +397,10 @@ function <<access.private>> meta::pure::lineage::scanProperties::internal_scanPr
                                                                                // Unary function, return is that function's return
                                                                                print(if($debug.debug,|$debug.space+'  - param 0\n',|''));
                                                                                let collectionPath = $params->at(0)->internal_scanProperties($processed, $vars, $config,  $visitedFunctions, ^$debug(space=$debug.space+'    '))->orElseEmptyPath();
-                                                                               $params->at(1)->findFunction()->processFunction($collectionPath, $vars, $processed, $config, $collectionPath.visitedFunctions, ^$debug(space=$debug.space+'    '))->withoutConditionalTerminalPaths();
+                                                                               if($fe.func.name->startsWith('map_') && $collectionPath->hasAlternativeTerminals($config),
+                                                                                  | $params->at(1)->findFunction()->processFunctionForEachTerminal($collectionPath, $vars, $processed, $config, ^$debug(space=$debug.space+'    ')),
+                                                                                  | $params->at(1)->findFunction()->processFunction($collectionPath, $vars, $processed, $config, $collectionPath.visitedFunctions, ^$debug(space=$debug.space+'    '))->withoutConditionalTerminalPaths()
+                                                                               );
                                                                             },
                                                                             |
                                                                          if($fe.func.name->in(['filter_T_MANY__Function_1__T_MANY_',
@@ -553,31 +556,61 @@ function <<access.private>> meta::pure::lineage::scanProperties::scanConstructed
    let constructedClass = if($isCopy, |$params->at(0)->extractType(), |$params->at(0)->constructedClassOf())->cast(@Class<Any>);
    let keyExpressions = if($params->size() > 2, |$params->at(2)->keyExpressionsOf(), |[]);
    let scanned = $keyExpressions->fold({k, acc |
-                    let keyState = $k.expression->internal_scanProperties($processed, $vars, $config, $acc.second.visitedFunctions, $debug);
-                    let assignment = ^ConstructedPropertyAssignment(
-                                        propertyName = $k.key.values->at(0)->cast(@String),
-                                        path         = $keyState.current->orElseEmptyPath(),
-                                        add          = $k.add->orElse(false)
-                                     );
+                    let maybeKeyState = $k.expression->internal_scanProperties($processed, $vars, $config, $acc.second.visitedFunctions, $debug);
+                    let keyState = $maybeKeyState->orElseEmptyPath();
+                    let assignments = $keyState->alternativePaths($config)->map(path | ^ConstructedPropertyAssignment(
+                                                                                   propertyName = $k.key.values->at(0)->cast(@String),
+                                                                                   path         = $path,
+                                                                                   add          = $k.add->orElse(false)
+                                                                                ));
                     pair(
-                       list($acc.first.values->concatenate($assignment)),
-                       makeScanPropertiesState(emptyPath(), $acc.second.result->concatenate($keyState.result), if($keyState->isEmpty(), |$acc.second.visitedFunctions, |$keyState->toOne().visitedFunctions))
+                       ^List<List<ConstructedPropertyAssignment>>(values = $acc.first.values->map(variant | $assignments->map(a | list($variant.values->concatenate($a))))),
+                       makeScanPropertiesState(emptyPath(), $acc.second.result->concatenate($keyState.result), if($maybeKeyState->isEmpty(), |$acc.second.visitedFunctions, |$keyState.visitedFunctions))
                     );
                  },
-                 pair(^List<ConstructedPropertyAssignment>(), makeScanPropertiesState(emptyPath(), $baseState.result, $baseVisited))
+                 pair(^List<List<ConstructedPropertyAssignment>>(values = ^List<ConstructedPropertyAssignment>()), makeScanPropertiesState(emptyPath(), $baseState.result, $baseVisited))
               );
-   let constructed = ^ConstructedInstancePathNode(
-                        class       = $constructedClass,
-                        property    = getDummyProperty(),
-                        assignments = $scanned.first.values,
-                        base        = if($isCopy, |$baseState.current->orElseEmptyPath(), |[])
-                     );
+   let constructed = $scanned.first.values->map(variant | list(^ConstructedInstancePathNode(
+                                                                  class       = $constructedClass,
+                                                                  property    = getDummyProperty(),
+                                                                  assignments = $variant.values,
+                                                                  base        = if($isCopy, |$baseState.current->orElseEmptyPath(), |[])
+                                                               )->cast(@PropertyPathNode)));
    let copiedValuesRead = if($isCopy,
-                             | $scanned.first.values->filter(a | $a.add)->map(a | $constructedClass->allProperties()->filter(p | $p->instanceOf(Property) && ($p.name == $a.propertyName))->first()
-                                                                                    ->map(p | list($baseState.current->orElseEmptyPath().values->concatenate(^PropertyPathNode(class = $constructedClass, property = $p)))->resolveConstructedNavigation())),
+                             | $scanned.first.values->at(0).values->filter(a | $a.add)->map(a | $constructedClass->allProperties()->filter(p | $p->instanceOf(Property) && ($p.name == $a.propertyName))->first()
+                                                                                                   ->map(p | list($baseState.current->orElseEmptyPath().values->concatenate(^PropertyPathNode(class = $constructedClass, property = $p)))->resolveConstructedNavigation())),
                              | []
                           );
-   makeScanPropertiesState(list($constructed->cast(@PropertyPathNode)), $scanned.second.result->concatenate($copiedValuesRead), $scanned.second.visitedFunctions);
+   makeScanPropertiesState(
+      $constructed->at(0),
+      if($constructed->size() > 1, |^ConditionalTerminalPaths(paths = $constructed), |[]),
+      $scanned.second.result->concatenate($copiedValuesRead),
+      $scanned.second.visitedFunctions
+   );
+}
+
+function <<access.private>> meta::pure::lineage::scanProperties::hasAlternativeTerminals(state:ScanPropertiesState[1], config:ScanConfig[1]):Boolean[1]
+{
+   $config.captureConditionalTerminals->orElse(false) && ($state.conditionalTerminalPaths.paths->size() > 1);
+}
+
+function <<access.private>> meta::pure::lineage::scanProperties::alternativePaths(state:ScanPropertiesState[1], config:ScanConfig[1]):List<PropertyPathNode>[1..*]
+{
+   if($state->hasAlternativeTerminals($config), |$state.conditionalTerminalPaths.paths->toOneMany(), |$state.current);
+}
+
+function <<access.private>> meta::pure::lineage::scanProperties::processFunctionForEachTerminal(fn:Function<Any>[0..1], input:ScanPropertiesState[1], vars:Map<String,List<PropertyPathNode>>[1], processed:Function<Any>[*], config:ScanConfig[1], debug:DebugContext[1]):ScanPropertiesState[1]
+{
+   let outputs = $input.conditionalTerminalPaths.paths->fold({terminal, acc |
+                    let visited = if($acc.values->isEmpty(), |$input.visitedFunctions, |$acc.values->last()->toOne().visitedFunctions);
+                    ^$acc(values += $fn->processFunction(^$input(current = $terminal, conditionalTerminalPaths = []), $vars, $processed, $config, $visited, $debug));
+                 }, ^List<ScanPropertiesState>()).values;
+   makeScanPropertiesState(
+      $outputs.current->firstMeaningfulCurrent(),
+      ^ConditionalTerminalPaths(paths = $outputs->map(o | $o->conditionalTerminalPathsOrCurrent())->removeDuplicates()),
+      $outputs.result,
+      $outputs->last()->toOne().visitedFunctions
+   );
 }
 
 function <<access.private>> meta::pure::lineage::scanProperties::firstMeaningfulCurrent(paths:List<PropertyPathNode>[*]):List<PropertyPathNode>[1]

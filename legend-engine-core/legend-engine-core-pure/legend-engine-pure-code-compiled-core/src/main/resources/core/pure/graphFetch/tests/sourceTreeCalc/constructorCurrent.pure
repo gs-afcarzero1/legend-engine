@@ -57,3 +57,38 @@ Mapping meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::child
   *Target: Pure { ~src Source targets[item]: $src.elements->map(e | ^Box(ft=$e)) }
   Item[item]: Pure { ~src Box id: $src.ft.id, val1: $src.ft->cast(@Special).somevalue.somevalue }
 )
+
+###Pure
+import meta::pure::graphFetch::*;
+import meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::alternatives::*;
+Class meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::alternatives::Leaf { id: String[1]; }
+Class meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::alternatives::Source { choice: String[1]; aDecoy: Leaf[*]; primary: Leaf[*]; secondary: Leaf[*]; }
+Class meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::alternatives::Box { ft: Leaf[*]; }
+Class meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::alternatives::Target { item: Item[*]; }
+Class meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::alternatives::Item { ids: String[*]; }
+
+function <<test.Test>> meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::alternatives::testMapOverConditionalBindsEachBranch():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {item {ids}}}#, mapOverConditionalMapping, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Source {choice, primary {id}, secondary {id}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+function <<test.Test>> meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::alternatives::testConditionalAssignmentBindsEachBranch():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {item {ids}}}#, conditionalAssignmentMapping, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Source {choice, primary {id}, secondary {id}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+###Mapping
+import meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::alternatives::*;
+Mapping meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::alternatives::mapOverConditionalMapping
+(
+  *Target: Pure { ~src Source item[item]: if($src.choice == 'primary', |$src.primary, |$src.secondary)->map(e | ^Box(ft=$e)) }
+  Item[item]: Pure { ~src Box ids: $src.ft.id }
+)
+
+Mapping meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::alternatives::conditionalAssignmentMapping
+(
+  *Target: Pure { ~src Source item[item]: ^Box(ft=if($src.choice == 'primary', |$src.primary, |$src.secondary)) }
+  Item[item]: Pure { ~src Box ids: $src.ft.id }
+)

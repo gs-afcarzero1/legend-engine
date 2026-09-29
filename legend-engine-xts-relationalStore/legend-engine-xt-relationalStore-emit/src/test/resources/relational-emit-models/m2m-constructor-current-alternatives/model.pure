@@ -1,0 +1,149 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+###Pure
+Class demo::m2m::constructorCurrent::alternatives::Leaf { id: String[1]; }
+Class demo::m2m::constructorCurrent::alternatives::Source { choice: String[1]; aDecoy: demo::m2m::constructorCurrent::alternatives::Leaf[*]; primary: demo::m2m::constructorCurrent::alternatives::Leaf[*]; secondary: demo::m2m::constructorCurrent::alternatives::Leaf[*]; }
+Class demo::m2m::constructorCurrent::alternatives::Box { ft: demo::m2m::constructorCurrent::alternatives::Leaf[*]; }
+Class demo::m2m::constructorCurrent::alternatives::Target { viaMap: demo::m2m::constructorCurrent::alternatives::Item[*]; viaAssignment: demo::m2m::constructorCurrent::alternatives::Item[1]; }
+Class demo::m2m::constructorCurrent::alternatives::Item { ids: String[*]; }
+
+###Relational
+Database demo::m2m::constructorCurrent::alternatives::DB
+(
+  Table SOURCE (ROW_ID INTEGER PRIMARY KEY, CHOICE VARCHAR(10), DECOY_ID INTEGER, PRIMARY_ID INTEGER, SECONDARY_ID INTEGER)
+  Table LEAF (ROW_ID INTEGER PRIMARY KEY, CODE VARCHAR(30))
+  Join SourceDecoy(SOURCE.DECOY_ID = LEAF.ROW_ID)
+  Join SourcePrimary(SOURCE.PRIMARY_ID = LEAF.ROW_ID)
+  Join SourceSecondary(SOURCE.SECONDARY_ID = LEAF.ROW_ID)
+)
+
+###Data
+Data demo::m2m::constructorCurrent::alternatives::Rows
+{
+  Relational
+  #{
+    default.SOURCE: 'ROW_ID,CHOICE,DECOY_ID,PRIMARY_ID,SECONDARY_ID\n1,primary,10,11,12\n2,secondary,20,21,22\n';
+    default.LEAF: 'ROW_ID,CODE\n10,D1\n11,P1\n12,S1\n20,D2\n21,P2\n22,S2\n';
+  }#
+}
+
+###Mapping
+Mapping demo::m2m::constructorCurrent::alternatives::Relational
+(
+  demo::m2m::constructorCurrent::alternatives::Source: Relational
+  {
+    ~primaryKey ([demo::m2m::constructorCurrent::alternatives::DB]SOURCE.ROW_ID)
+    ~mainTable [demo::m2m::constructorCurrent::alternatives::DB]SOURCE
+    choice: [demo::m2m::constructorCurrent::alternatives::DB]SOURCE.CHOICE,
+    aDecoy: [demo::m2m::constructorCurrent::alternatives::DB]@SourceDecoy,
+    primary: [demo::m2m::constructorCurrent::alternatives::DB]@SourcePrimary,
+    secondary: [demo::m2m::constructorCurrent::alternatives::DB]@SourceSecondary
+  }
+  demo::m2m::constructorCurrent::alternatives::Leaf: Relational
+  {
+    ~primaryKey ([demo::m2m::constructorCurrent::alternatives::DB]LEAF.ROW_ID)
+    ~mainTable [demo::m2m::constructorCurrent::alternatives::DB]LEAF
+    id: [demo::m2m::constructorCurrent::alternatives::DB]LEAF.CODE
+  }
+)
+Mapping demo::m2m::constructorCurrent::alternatives::Transform
+(
+  *demo::m2m::constructorCurrent::alternatives::Target: Pure
+  {
+    ~src demo::m2m::constructorCurrent::alternatives::Source
+    viaMap[item]: if($src.choice == 'primary', |$src.primary, |$src.secondary)->map(e | ^demo::m2m::constructorCurrent::alternatives::Box(ft=$e)),
+    viaAssignment[item]: ^demo::m2m::constructorCurrent::alternatives::Box(ft=if($src.choice == 'primary', |$src.primary, |$src.secondary))
+  }
+  demo::m2m::constructorCurrent::alternatives::Item[item]: Pure
+  {
+    ~src demo::m2m::constructorCurrent::alternatives::Box
+    ids: $src.ft.id
+  }
+)
+
+###Connection
+RelationalDatabaseConnection demo::m2m::constructorCurrent::alternatives::H2
+{
+  store: demo::m2m::constructorCurrent::alternatives::DB;
+  type: H2;
+  specification: LocalH2 { };
+  auth: DefaultH2;
+}
+ModelChainConnection demo::m2m::constructorCurrent::alternatives::Chain
+{
+  mappings: [demo::m2m::constructorCurrent::alternatives::Relational];
+}
+
+###Runtime
+Runtime demo::m2m::constructorCurrent::alternatives::TransformRuntime
+{
+  mappings: [ demo::m2m::constructorCurrent::alternatives::Transform ];
+  connections:
+  [
+    ModelStore: [ chain: demo::m2m::constructorCurrent::alternatives::Chain ],
+    demo::m2m::constructorCurrent::alternatives::DB: [ h2: demo::m2m::constructorCurrent::alternatives::H2 ]
+  ];
+}
+
+###Service
+Service demo::m2m::constructorCurrent::alternatives::TransformService
+{
+  pattern: '/constructorCurrent/alternatives';
+  documentation: 'Conditional sources reach a child mapping through map and a constructor assignment';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: |demo::m2m::constructorCurrent::alternatives::Target.all()->graphFetch(#{demo::m2m::constructorCurrent::alternatives::Target{viaMap{ids},viaAssignment{ids}}}#)->serialize(#{demo::m2m::constructorCurrent::alternatives::Target{viaMap{ids},viaAssignment{ids}}}#);
+    mapping: demo::m2m::constructorCurrent::alternatives::Transform;
+    runtime: demo::m2m::constructorCurrent::alternatives::TransformRuntime;
+  }
+  testSuites:
+  [
+    s:
+    {
+      data:
+      [
+        connections:
+        [
+          h2:
+            Reference
+            #{
+              demo::m2m::constructorCurrent::alternatives::Rows
+            }#
+        ]
+      ]
+      tests:
+      [
+        t:
+        {
+          serializationFormat: PURE;
+          asserts:
+          [
+            expected:
+              EqualToJson
+              #{
+                expected:
+                  ExternalFormat
+                  #{
+                    contentType: 'application/json';
+                    data: '[{"viaAssignment":{"ids":["P1"]},"viaMap":[{"ids":["P1"]}]},{"viaAssignment":{"ids":["S2"]},"viaMap":[{"ids":["S2"]}]}]';
+                  }#;
+              }#
+          ]
+        }
+      ]
+    }
+  ]
+}

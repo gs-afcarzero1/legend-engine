@@ -1,0 +1,23 @@
+name: m2m-constructor-current-alternatives
+title: "M2M child reads extend every branch of a conditional constructor source"
+description: |
+  A conditional selects primary or secondary. One property maps the choice
+  into Box(ft=element); another assigns the conditional directly to Box.ft.
+  A separate child mapping reads ft.id. The mapping runs over H2 through a
+  ModelChainConnection with one row taking each branch, so an id missing from
+  either branch is observable in the service output.
+modelSources:
+  model:
+    root: m2m-constructor-current-alternatives
+    files:
+      - model.pure
+features:
+  - mapping:mapping
+stores:
+  - relational
+complexity: basic
+tags:
+  - m2m
+  - new-operator
+  - source-tree
+  - h2
