@@ -32,3 +32,28 @@ Mapping meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::inlin
 (
   *Target: Pure { ~src Source value: ^Box(ft=$src.primary).ft.id }
 )
+
+###Pure
+import meta::pure::graphFetch::*;
+import meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::child::*;
+Class meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::child::Leaf { id: String[1]; }
+Class meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::child::Detail { somevalue: String[1]; }
+Class meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::child::Special extends Leaf { somevalue: Detail[1]; }
+Class meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::child::Source { aDecoy: Leaf[1]; elements: Leaf[*]; }
+Class meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::child::Box { ft: Leaf[1]; }
+Class meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::child::Target { targets: Item[*]; }
+Class meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::child::Item { id: String[1]; val1: String[1]; }
+
+function <<test.Test>> meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::child::testChildMappingReadsThroughConstructedCurrent():Boolean[1]
+{
+  let actual = calculateSourceTree(#{Target {targets {id, val1}}}#, childMapping, meta::pure::extension::defaultExtensions());
+  assertEquals(#{Source {elements {id}, elements->subType(@Special) {id, somevalue {somevalue}}}}#->sortTree()->treeToString(), $actual->sortTree()->treeToString());
+}
+
+###Mapping
+import meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::child::*;
+Mapping meta::pure::graphFetch::tests::sourceTreeCalc::constructorCurrent::child::childMapping
+(
+  *Target: Pure { ~src Source targets[item]: $src.elements->map(e | ^Box(ft=$e)) }
+  Item[item]: Pure { ~src Box id: $src.ft.id, val1: $src.ft->cast(@Special).somevalue.somevalue }
+)

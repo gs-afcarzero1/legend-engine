@@ -1,0 +1,158 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+###Pure
+Class demo::m2m::constructorCurrent::child::Leaf { id: String[1]; }
+Class demo::m2m::constructorCurrent::child::Detail { somevalue: String[1]; }
+Class demo::m2m::constructorCurrent::child::Special extends demo::m2m::constructorCurrent::child::Leaf { somevalue: demo::m2m::constructorCurrent::child::Detail[1]; }
+Class demo::m2m::constructorCurrent::child::Source { aDecoy: demo::m2m::constructorCurrent::child::Special[1]; elements: demo::m2m::constructorCurrent::child::Special[*]; }
+Class demo::m2m::constructorCurrent::child::Box { ft: demo::m2m::constructorCurrent::child::Leaf[1]; }
+Class demo::m2m::constructorCurrent::child::Target { targets: demo::m2m::constructorCurrent::child::Item[*]; }
+Class demo::m2m::constructorCurrent::child::Item { id: String[1]; val1: String[1]; }
+
+###Relational
+Database demo::m2m::constructorCurrent::child::DB
+(
+  Table SOURCE (ROW_ID INTEGER PRIMARY KEY, DECOY_ID INTEGER)
+  Table LEAF (ROW_ID INTEGER PRIMARY KEY, SOURCE_ID INTEGER, CODE VARCHAR(30), DETAIL_ID INTEGER)
+  Table DETAIL (ROW_ID INTEGER PRIMARY KEY, VALUESTR VARCHAR(30))
+  Join SourceDecoy(SOURCE.DECOY_ID = LEAF.ROW_ID)
+  Join SourceElements(SOURCE.ROW_ID = LEAF.SOURCE_ID)
+  Join LeafDetail(LEAF.DETAIL_ID = DETAIL.ROW_ID)
+)
+
+###Data
+Data demo::m2m::constructorCurrent::child::Rows
+{
+  Relational
+  #{
+    default.SOURCE: 'ROW_ID,DECOY_ID\n1,10\n';
+    default.LEAF: 'ROW_ID,SOURCE_ID,CODE,DETAIL_ID\n10,99,DECOY,10\n20,1,E1,20\n30,1,E2,30\n';
+    default.DETAIL: 'ROW_ID,VALUESTR\n10,wrong\n20,first\n30,second\n';
+  }#
+}
+
+###Mapping
+Mapping demo::m2m::constructorCurrent::child::Relational
+(
+  demo::m2m::constructorCurrent::child::Source: Relational
+  {
+    ~primaryKey ([demo::m2m::constructorCurrent::child::DB]SOURCE.ROW_ID)
+    ~mainTable [demo::m2m::constructorCurrent::child::DB]SOURCE
+    aDecoy: [demo::m2m::constructorCurrent::child::DB]@SourceDecoy,
+    elements: [demo::m2m::constructorCurrent::child::DB]@SourceElements
+  }
+  demo::m2m::constructorCurrent::child::Special: Relational
+  {
+    ~primaryKey ([demo::m2m::constructorCurrent::child::DB]LEAF.ROW_ID)
+    ~mainTable [demo::m2m::constructorCurrent::child::DB]LEAF
+    id: [demo::m2m::constructorCurrent::child::DB]LEAF.CODE,
+    somevalue: [demo::m2m::constructorCurrent::child::DB]@LeafDetail
+  }
+  demo::m2m::constructorCurrent::child::Detail: Relational
+  {
+    ~primaryKey ([demo::m2m::constructorCurrent::child::DB]DETAIL.ROW_ID)
+    ~mainTable [demo::m2m::constructorCurrent::child::DB]DETAIL
+    somevalue: [demo::m2m::constructorCurrent::child::DB]DETAIL.VALUESTR
+  }
+)
+Mapping demo::m2m::constructorCurrent::child::Transform
+(
+  *demo::m2m::constructorCurrent::child::Target: Pure
+  {
+    ~src demo::m2m::constructorCurrent::child::Source
+    targets[item]: $src.elements->map(e | ^demo::m2m::constructorCurrent::child::Box(ft=$e))
+  }
+  demo::m2m::constructorCurrent::child::Item[item]: Pure
+  {
+    ~src demo::m2m::constructorCurrent::child::Box
+    id: $src.ft.id,
+    val1: $src.ft->cast(@demo::m2m::constructorCurrent::child::Special).somevalue.somevalue
+  }
+)
+
+###Connection
+RelationalDatabaseConnection demo::m2m::constructorCurrent::child::H2
+{
+  store: demo::m2m::constructorCurrent::child::DB;
+  type: H2;
+  specification: LocalH2 { };
+  auth: DefaultH2;
+}
+ModelChainConnection demo::m2m::constructorCurrent::child::Chain
+{
+  mappings: [demo::m2m::constructorCurrent::child::Relational];
+}
+
+###Runtime
+Runtime demo::m2m::constructorCurrent::child::TransformRuntime
+{
+  mappings: [ demo::m2m::constructorCurrent::child::Transform ];
+  connections:
+  [
+    ModelStore: [ chain: demo::m2m::constructorCurrent::child::Chain ],
+    demo::m2m::constructorCurrent::child::DB: [ h2: demo::m2m::constructorCurrent::child::H2 ]
+  ];
+}
+
+###Service
+Service demo::m2m::constructorCurrent::child::TransformService
+{
+  pattern: '/constructorCurrent/child';
+  documentation: 'Constructed map result read by a child mapping';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: |demo::m2m::constructorCurrent::child::Target.all()->graphFetch(#{demo::m2m::constructorCurrent::child::Target{targets{id,val1}}}#)->serialize(#{demo::m2m::constructorCurrent::child::Target{targets{id,val1}}}#);
+    mapping: demo::m2m::constructorCurrent::child::Transform;
+    runtime: demo::m2m::constructorCurrent::child::TransformRuntime;
+  }
+  testSuites:
+  [
+    s:
+    {
+      data:
+      [
+        connections:
+        [
+          h2:
+            Reference
+            #{
+              demo::m2m::constructorCurrent::child::Rows
+            }#
+        ]
+      ]
+      tests:
+      [
+        t:
+        {
+          serializationFormat: PURE;
+          asserts:
+          [
+            expected:
+              EqualToJson
+              #{
+                expected:
+                  ExternalFormat
+                  #{
+                    contentType: 'application/json';
+                    data: '{"targets":[{"id":"E1","val1":"first"},{"id":"E2","val1":"second"}]}';
+                  }#;
+              }#
+          ]
+        }
+      ]
+    }
+  ]
+}

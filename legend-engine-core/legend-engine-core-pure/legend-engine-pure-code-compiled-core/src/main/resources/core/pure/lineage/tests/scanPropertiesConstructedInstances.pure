@@ -53,11 +53,11 @@ function meta::pure::lineage::scanProperties::test::constructed::scanResolving(f
   $f.expressionSequence->at(0)->evaluateAndDeactivate()->scanProperties(resolvingConfig())->toOne();
 }
 
-function <<meta::pure::profiles::test.Test>> meta::pure::lineage::scanProperties::test::constructed::testKeyExpressionSourcesAreRecordedAndInstanceIsNotExposed():Boolean[1]
+function <<meta::pure::profiles::test.Test>> meta::pure::lineage::scanProperties::test::constructed::testKeyExpressionSourcesAreRecordedAndInstanceIsReturned():Boolean[1]
 {
   let res = scanResolving({data:Data[*] | $data->map(d | ^Box(a=$d.a))});
   assertEquals('Data->a', $res.result->printPropertyNodeLists());
-  assertEquals('', $res.current->printPropertyNodeLists());
+  assert($res.current.values->toOne()->instanceOf(ConstructedInstancePathNode));
 }
 
 function <<meta::pure::profiles::test.Test>> meta::pure::lineage::scanProperties::test::constructed::testReadingAssignedPropertyResolvesToItsSource():Boolean[1]
@@ -122,19 +122,27 @@ function <<meta::pure::profiles::test.Test>> meta::pure::lineage::scanProperties
   assertEquals('Data->a\nData->b', $res.result->printPropertyNodeLists());
 }
 
+function <<meta::pure::profiles::test.Test>> meta::pure::lineage::scanProperties::test::constructed::testBoundConstructedSourceResolvesPropertyReads():Boolean[1]
+{
+  let parent = scanResolving({d:Data[1] | ^Box(a='k', data=$d.child)});
+  let child = {b:Box[1] | $b.data.a}.expressionSequence->at(0)->evaluateAndDeactivate()->scanProperties(noDebug(), resolvingConfig(), ^Map<String,ScanPropertiesState>(), newMap(pair('b', $parent.current)))->toOne();
+  assertEquals('Data->child\nData->child, Data->a', $child.result->printPropertyNodeLists());
+  assertEquals('Data->child, Data->a', $child.current->printPropertyNodeLists());
+}
+
 function <<meta::pure::profiles::test.Test>> meta::pure::lineage::scanProperties::test::constructed::testReadAcrossCollectionOfConstructedInstancesRecordsBothSources():Boolean[1]
 {
   let res = scanResolving({d:Data[1] | [^Box(a=$d.a), ^Box(a=$d.b)]->map(b | $b.a)});
   assertEquals('Data->a\nData->b', $res.result->printPropertyNodeLists());
 }
 
-function <<meta::pure::profiles::test.Test>> meta::pure::lineage::scanProperties::test::constructed::testConditionalTerminalsNeverExposeConstructedInstance():Boolean[1]
+function <<meta::pure::profiles::test.Test>> meta::pure::lineage::scanProperties::test::constructed::testConditionalTerminalsReturnConstructedInstances():Boolean[1]
 {
   let config = ^ScanConfig(scanClasses=false, explodeMilestonedProperties=true, captureConditionalTerminals=true, resolveConstructedInstances=true);
   let res = {d:Data[1] | if($d.a == 'x', |^Box(a=$d.a), |^Box(a=$d.b))}.expressionSequence->at(0)->evaluateAndDeactivate()->scanProperties($config)->toOne();
   assert($res.conditionalTerminalPaths->isNotEmpty());
-  assert($res.conditionalTerminalPaths.paths->forAll(p | $p.values->isEmpty()));
-  assert($res.current.values->isEmpty());
+  assert($res.conditionalTerminalPaths.paths->forAll(p | $p.values->toOne()->instanceOf(ConstructedInstancePathNode)));
+  assert($res.current.values->toOne()->instanceOf(ConstructedInstancePathNode));
 }
 
 function <<meta::pure::profiles::test.Test>> meta::pure::lineage::scanProperties::test::constructed::testDefaultConfigLeavesConstructedInstancesUnresolved():Boolean[1]
