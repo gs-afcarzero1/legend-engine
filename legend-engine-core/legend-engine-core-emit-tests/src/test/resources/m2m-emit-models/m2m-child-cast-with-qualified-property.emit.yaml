@@ -1,0 +1,19 @@
+name: m2m-child-cast-with-qualified-property
+title: "M2M child mapping keeps a cast read alongside a qualified property"
+description: |
+  The child mapping with ~src Leaf reads a qualified property of $src and,
+  after casting $src to Special, a nested value only Special declares. The
+  query requests the cast read first, so the subtype read must survive the
+  qualified property being recorded afterwards.
+modelSources:
+  model:
+    root: m2m-child-cast-with-qualified-property
+    files:
+      - model.pure
+features:
+  - mapping:mapping
+stores: []
+complexity: basic
+tags:
+  - m2m
+  - new-operator
