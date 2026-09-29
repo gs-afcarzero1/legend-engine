@@ -61,7 +61,7 @@ Class meta::pure::lineage::scanProperties::ConstructedPropertyAssignment
    add : Boolean[1];
 }
 
-// Internal only: result paths holding one are dropped and the public entry points replace a current holding one with an empty path.
+// Never a physical source path: result paths holding one are dropped. A current holding one is the returned value, which M2M binds to a child mapping's source.
 Class meta::pure::lineage::scanProperties::ConstructedInstancePathNode extends PropertyPathNode
 {
    <<equality.Key>> assignments : ConstructedPropertyAssignment[*];
@@ -225,12 +225,17 @@ function meta::pure::lineage::scanProperties::scanProperties(vs:ValueSpecificati
 function meta::pure::lineage::scanProperties::scanProperties(vs:ValueSpecification[1], debug:DebugContext[1], config:ScanConfig[1]):ScanPropertiesState[0..1]
 {
    print(if($debug.debug,|$debug.space+'>>> ScanProperties in : ' +$vs->printValueSpecification(^GContext(space='')) + ' \n',|''));
-   internal_scanProperties($vs, [], noVars(), $config, ^Map<String,ScanPropertiesState>(), ^$debug(space=$debug.space+'    '))->map(s | $s->withoutConstructedInstances());
+   internal_scanProperties($vs, [], noVars(), $config, ^Map<String,ScanPropertiesState>(), ^$debug(space=$debug.space+'    '));
 }
 
 function meta::pure::lineage::scanProperties::scanProperties(vs:ValueSpecification[1], debug:DebugContext[1], config:ScanConfig[1], visitedFunctions:Map<String,ScanPropertiesState>[1]):ScanPropertiesState[0..1]
 { 
-   internal_scanProperties($vs, [], noVars(), $config, $visitedFunctions, ^$debug(space=$debug.space+'    '))->map(s | $s->withoutConstructedInstances());
+   scanProperties($vs, $debug, $config, $visitedFunctions, noVars());
+}
+
+function meta::pure::lineage::scanProperties::scanProperties(vs:ValueSpecification[1], debug:DebugContext[1], config:ScanConfig[1], visitedFunctions:Map<String,ScanPropertiesState>[1], vars:Map<String,List<PropertyPathNode>>[1]):ScanPropertiesState[0..1]
+{
+   internal_scanProperties($vs, [], $vars, $config, $visitedFunctions, ^$debug(space=$debug.space+'    '));
 }
 
 function <<access.private>> meta::pure::lineage::scanProperties::internal_scanProperties(vs:ValueSpecification[1], processed:Function<Any>[*], vars:Map<String,List<PropertyPathNode>>[1], config:ScanConfig[1], visitedFunctions:Map<String,ScanPropertiesState>[1], debug: meta::pure::tools::DebugContext[1]):ScanPropertiesState[0..1]
@@ -864,14 +869,6 @@ function <<access.private>> meta::pure::lineage::scanProperties::noVars():Map<St
 function <<access.private>> meta::pure::lineage::scanProperties::removeEmptyResults(res:ScanPropertiesState[0..1]):ScanPropertiesState[0..1]
 {
    $res->map(r| ^$r(result=$r.result->removeEmptyPaths()->filter(l | !$l->holdsConstructedInstance())));
-}
-
-function <<access.private>> meta::pure::lineage::scanProperties::withoutConstructedInstances(state:ScanPropertiesState[1]):ScanPropertiesState[1]
-{
-   ^$state(
-      current                  = if($state.current->holdsConstructedInstance(), |emptyPath(), |$state.current),
-      conditionalTerminalPaths = $state.conditionalTerminalPaths->map(t | ^$t(paths = $t.paths->map(p | if($p->holdsConstructedInstance(), |emptyPath(), |$p))))
-   );
 }
 
 function <<access.private>> meta::pure::lineage::scanProperties::removeEmptyPaths(paths:List<PropertyPathNode>[*]):List<PropertyPathNode>[*]
