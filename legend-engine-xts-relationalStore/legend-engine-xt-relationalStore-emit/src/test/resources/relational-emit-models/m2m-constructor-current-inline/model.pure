@@ -1,0 +1,139 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+###Pure
+Class demo::m2m::constructorCurrent::inline::Leaf { id: String[1]; }
+Class demo::m2m::constructorCurrent::inline::Source { aDecoy: demo::m2m::constructorCurrent::inline::Leaf[1]; primary: demo::m2m::constructorCurrent::inline::Leaf[1]; }
+Class demo::m2m::constructorCurrent::inline::Box { ft: demo::m2m::constructorCurrent::inline::Leaf[1]; }
+Class demo::m2m::constructorCurrent::inline::Target { value: String[1]; }
+
+###Relational
+Database demo::m2m::constructorCurrent::inline::DB
+(
+  Table SOURCE (ROW_ID INTEGER PRIMARY KEY, DECOY_ID INTEGER, PRIMARY_ID INTEGER)
+  Table LEAF (ROW_ID INTEGER PRIMARY KEY, CODE VARCHAR(30))
+  Join SourceDecoy(SOURCE.DECOY_ID = LEAF.ROW_ID)
+  Join SourcePrimary(SOURCE.PRIMARY_ID = LEAF.ROW_ID)
+)
+
+###Data
+Data demo::m2m::constructorCurrent::inline::Rows
+{
+  Relational
+  #{
+    default.SOURCE: 'ROW_ID,DECOY_ID,PRIMARY_ID\n1,10,20\n';
+    default.LEAF: 'ROW_ID,CODE\n10,DECOY\n20,PRIMARY\n';
+  }#
+}
+
+###Mapping
+Mapping demo::m2m::constructorCurrent::inline::Relational
+(
+  demo::m2m::constructorCurrent::inline::Source: Relational
+  {
+    ~primaryKey ([demo::m2m::constructorCurrent::inline::DB]SOURCE.ROW_ID)
+    ~mainTable [demo::m2m::constructorCurrent::inline::DB]SOURCE
+    aDecoy: [demo::m2m::constructorCurrent::inline::DB]@SourceDecoy,
+    primary: [demo::m2m::constructorCurrent::inline::DB]@SourcePrimary
+  }
+  demo::m2m::constructorCurrent::inline::Leaf: Relational
+  {
+    ~primaryKey ([demo::m2m::constructorCurrent::inline::DB]LEAF.ROW_ID)
+    ~mainTable [demo::m2m::constructorCurrent::inline::DB]LEAF
+    id: [demo::m2m::constructorCurrent::inline::DB]LEAF.CODE
+  }
+)
+Mapping demo::m2m::constructorCurrent::inline::Transform
+(
+  *demo::m2m::constructorCurrent::inline::Target: Pure
+  {
+    ~src demo::m2m::constructorCurrent::inline::Source
+    value: ^demo::m2m::constructorCurrent::inline::Box(ft=$src.primary).ft.id
+  }
+)
+
+###Connection
+RelationalDatabaseConnection demo::m2m::constructorCurrent::inline::H2
+{
+  store: demo::m2m::constructorCurrent::inline::DB;
+  type: H2;
+  specification: LocalH2 { };
+  auth: DefaultH2;
+}
+ModelChainConnection demo::m2m::constructorCurrent::inline::Chain
+{
+  mappings: [demo::m2m::constructorCurrent::inline::Relational];
+}
+
+###Runtime
+Runtime demo::m2m::constructorCurrent::inline::TransformRuntime
+{
+  mappings: [ demo::m2m::constructorCurrent::inline::Transform ];
+  connections:
+  [
+    ModelStore: [ chain: demo::m2m::constructorCurrent::inline::Chain ],
+    demo::m2m::constructorCurrent::inline::DB: [ h2: demo::m2m::constructorCurrent::inline::H2 ]
+  ];
+}
+
+###Service
+Service demo::m2m::constructorCurrent::inline::TransformService
+{
+  pattern: '/constructorCurrent/inline';
+  documentation: 'Constructor property read within one transform';
+  autoActivateUpdates: true;
+  execution: Single
+  {
+    query: |demo::m2m::constructorCurrent::inline::Target.all()->graphFetch(#{demo::m2m::constructorCurrent::inline::Target{value}}#)->serialize(#{demo::m2m::constructorCurrent::inline::Target{value}}#);
+    mapping: demo::m2m::constructorCurrent::inline::Transform;
+    runtime: demo::m2m::constructorCurrent::inline::TransformRuntime;
+  }
+  testSuites:
+  [
+    s:
+    {
+      data:
+      [
+        connections:
+        [
+          h2:
+            Reference
+            #{
+              demo::m2m::constructorCurrent::inline::Rows
+            }#
+        ]
+      ]
+      tests:
+      [
+        t:
+        {
+          serializationFormat: PURE;
+          asserts:
+          [
+            expected:
+              EqualToJson
+              #{
+                expected:
+                  ExternalFormat
+                  #{
+                    contentType: 'application/json';
+                    data: '{"value":"PRIMARY"}';
+                  }#;
+              }#
+          ]
+        }
+      ]
+    }
+  ]
+}
