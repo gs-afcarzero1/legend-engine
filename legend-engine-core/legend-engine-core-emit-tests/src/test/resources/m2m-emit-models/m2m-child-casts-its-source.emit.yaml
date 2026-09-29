@@ -1,0 +1,19 @@
+name: m2m-child-casts-its-source
+title: "M2M child mapping reads a subtype property after casting its own source"
+description: |
+  The parent passes primary to a child mapping with ~src Leaf. The child
+  casts $src to the subtype Special and reads a nested value that only
+  Special declares, so the source tree must request it under primary as
+  a Special subtype.
+modelSources:
+  model:
+    root: m2m-child-casts-its-source
+    files:
+      - model.pure
+features:
+  - mapping:mapping
+stores: []
+complexity: basic
+tags:
+  - m2m
+  - new-operator
