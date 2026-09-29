@@ -1,0 +1,19 @@
+name: m2m-new-child-filter-casts-source
+title: "M2M child mapping filters on a subtype value of the instance its parent constructs"
+description: |
+  The parent wraps each source Leaf in Box(ft=src). The child mapping with
+  ~src Box filters on a nested value reached only after casting ft to
+  Special, and the query does not request that value. One source row
+  passes the filter and one does not.
+modelSources:
+  model:
+    root: m2m-new-child-filter-casts-source
+    files:
+      - model.pure
+features:
+  - mapping:mapping
+stores: []
+complexity: basic
+tags:
+  - m2m
+  - new-operator

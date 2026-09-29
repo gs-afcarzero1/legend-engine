@@ -783,9 +783,10 @@ function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeForBound
 function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeForPropertyPath(srcNode:GraphFetchTree[1], baseClass:Class<Any>[1], propertyPath:ScanPropertiesState[0..1]): GraphFetchTree[1]
 {
    let inlinedPropertyTree        = $propertyPath.result->buildPropertyTree()->inlineQualifiedPropertyNodes();
-   let inlinedPropertyGraphTrees  = $inlinedPropertyTree->propertyTreeToGraphFetchTree($baseClass).subTrees->cast(@PropertyGraphFetchTree);
+   let inlinedGraphTree           = $inlinedPropertyTree->propertyTreeToGraphFetchTree($baseClass);
+   let inlinedPropertyGraphTrees  = $inlinedGraphTree.subTrees->cast(@PropertyGraphFetchTree);
    let srcNodeProperties          = $inlinedPropertyGraphTrees->filter(p | $baseClass->getAllTypeGeneralisations()->contains($p.property->meta::pure::functions::meta::ownerClass()));
-   let withFoundProperties        = $srcNode->addSubTrees($srcNodeProperties);
+   let withFoundProperties        = $srcNode->addSubTrees($srcNodeProperties)->addSubTypeTrees($inlinedGraphTree.subTypeTrees);
    let withQPsRecorded            = $propertyPath.result->filter(path| $path.values->exists(x| $x.property->instanceOf(QualifiedProperty)))
                                                  ->fold({path, gt| $gt->recordQualifiedProperties($path)}, $withFoundProperties);
 }
