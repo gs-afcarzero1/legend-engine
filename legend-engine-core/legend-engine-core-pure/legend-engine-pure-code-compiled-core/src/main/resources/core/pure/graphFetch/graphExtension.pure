@@ -616,7 +616,10 @@ function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeForPrope
          // not stored slots, so they must never be synthesized into the source tree as
          // back-edges - the query/mapping never asked for them and downstream serialize
          // code generation would call them with no arguments.
-         let childProperties = $owner->meta::pure::functions::meta::allNestedProperties()
+         // A tree rooted at owner cannot fail the precondition and needs no back-path, so skip walking owner's whole class graph.
+         let rootedAtOwner = $inlinedPropertyTree.children->isEmpty() || $inlinedPropertyTree->getRootClass()->exists(c | $c == $owner || $c->isStrictSubType($owner));
+         let nestedProperties = if($rootedAtOwner, | [], | $owner->meta::pure::functions::meta::allNestedProperties());
+         let childProperties = $nestedProperties
                                        ->filter(p | !$p->instanceOf(QualifiedProperty)
                                                     && $p->functionReturnType().rawType->isNotEmpty()
                                                     && $p->functionReturnType().rawType->toOne()->instanceOf(Class));
@@ -643,7 +646,7 @@ function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeForPrope
          // constructs a `^PersonB(...)` literal from owner Firm where Firm.employees: Person[*],
          // PersonB shares hierarchy with Person via inheritance — the legacy fallback's empty
          // source tree is the correct output and the precondition must stay inert.
-         let ownerClassTypedReturnTypes = $owner->meta::pure::functions::meta::allNestedProperties()
+         let ownerClassTypedReturnTypes = $nestedProperties
                                                 ->map(p | $p.genericType.rawType)
                                                 ->filter(t | $t->isNotEmpty() && $t->toOne()->instanceOf(Class))
                                                 ->map(t | $t->toOne()->cast(@Class<Any>))
@@ -663,7 +666,7 @@ function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeForPrope
          // unreachable chains), so it is read off the transform expressions directly.
          let transformsReferenceSource = $propertyMappings->exists(pm | let paramNames = $pm.transform->functionType().parameters->evaluateAndDeactivate().name;
                                                                         $pm.transform.expressionSequence->evaluateAndDeactivate()->exists(e | $e->meta::pure::graphFetch::referencesAnyVariable($paramNames)););
-         assert(!$setImplSrcClassMatchesOwner || $propertyTreesBelongingToOwner->isNotEmpty() || $nonTrivialTreeClasses->isEmpty() || $hasReachableTreeClass || !$transformsReferenceSource,
+         assert($rootedAtOwner || !$setImplSrcClassMatchesOwner || $propertyTreesBelongingToOwner->isNotEmpty() || $nonTrivialTreeClasses->isEmpty() || $hasReachableTreeClass || !$transformsReferenceSource,
                 |'No intermediate-class property of ' + $owner->elementToPath() + ' returns ' + $nonTrivialTreeClasses->at(0)->elementToPath() + ' - cannot build path back to owner.');
 
          // Property tree root node may not start at owner (e.g. when the source of a mapping is wrapped in a new class and passed to a property mapping).
