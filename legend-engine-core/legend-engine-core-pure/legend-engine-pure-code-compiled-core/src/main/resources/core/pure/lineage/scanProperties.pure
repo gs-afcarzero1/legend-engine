@@ -530,6 +530,11 @@ function <<access.private>> meta::pure::lineage::scanProperties::scanInOrder(vss
    }, list([]->cast(@ScanPropertiesState))).values;
 }
 
+function <<access.private>> meta::pure::lineage::scanProperties::cutByCaller(processed:Function<Any>[*], visitedFunctions:Map<String,ScanPropertiesState>[1]):Boolean[1]
+{
+   $processed->exists(c | $c->recursionCutKey()->exists(k | $visitedFunctions->get($k)->isNotEmpty()));
+}
+
 function <<access.private>> meta::pure::lineage::scanProperties::recursionCutKey(f:Function<Any>[1]):String[0..1]
 {
    $f->match([
@@ -673,8 +678,7 @@ function <<access.private>> meta::pure::lineage::scanProperties::processFunction
 
                     let body = $expressions->processExpressionSequence($allVars, $processed->concatenate($f), $config, $visitedFunctions, $debug);
                     // A body scanned while one of its callers was cut short by the recursion guard misses that caller's reads, so it is not reusable elsewhere.
-                    let cutByCaller = $processed->exists(c | $c->recursionCutKey()->exists(k | $body.visitedFunctions->get($k)->isNotEmpty()));
-                    let updatedMap = if($cutByCaller, |$body.visitedFunctions, |$body.visitedFunctions->put($f->meta::pure::functions::meta::elementToPath(), ^$body(visitedFunctions = ^Map<String,ScanPropertiesState>())));
+                    let updatedMap = if($processed->cutByCaller($body.visitedFunctions), |$body.visitedFunctions, |$body.visitedFunctions->put($f->meta::pure::functions::meta::elementToPath(), ^$body(visitedFunctions = ^Map<String,ScanPropertiesState>())));
 
                     let acutalResult = resolveDummyNodes($body, $paramPaths);
                                       
@@ -811,7 +815,9 @@ function <<access.private>> meta::pure::lineage::scanProperties::processQualifie
    let afterParams   = if($paramPaths->isEmpty(), |$visitedFunctions, |$paramPaths->last()->toOne().visitedFunctions);
    let qualifierVars = $q->functionType().parameters->tail().name->zip($paramPaths.current)->newMap();
    let skipBody      = $q->isMilestonedGeneratedQualifiedProperty() && $config.explodeMilestonedProperties==false;
-   let qualifierBody = if($skipBody, |[], |$q.expressionSequence->processExpressionSequence($qualifierVars, $processed->concatenate($q), $config, $afterParams, $debug));
+   let cacheKey      = if($skipBody || $parameters->isNotEmpty(), |[], |$q.owner->cast(@PackageableElement)->elementToPath() + '.' + $q.name->toOne() + '()');
+   let cachedBody    = $cacheKey->map(k | $afterParams->get($k));
+   let qualifierBody = if($skipBody, |[], |if($cachedBody->isNotEmpty(), |$cachedBody, |$q.expressionSequence->processExpressionSequence($qualifierVars, $processed->concatenate($q), $config, $afterParams, $debug)));
     
   let property = if($skipBody,
        | if(hasSufficientValuesForPropertyParameters( $q,$parameters),
@@ -841,7 +847,11 @@ function <<access.private>> meta::pure::lineage::scanProperties::processQualifie
    makeScanPropertiesState(
       if($append,|^$list(values = $list.values->concatenate($property)),|^$list(values = $property->concatenate($list.values))),
       [],
-      if($qualifierBody->isEmpty(), |$afterParams, |$qualifierBody->toOne().visitedFunctions)
+      if($qualifierBody->isEmpty() || $cachedBody->isNotEmpty(),
+         | $afterParams,
+         | let body = $qualifierBody->toOne();
+           if($cacheKey->isEmpty() || $processed->cutByCaller($body.visitedFunctions), |$body.visitedFunctions, |$body.visitedFunctions->put($cacheKey->toOne(), ^$body(visitedFunctions = ^Map<String,ScanPropertiesState>())));
+      )
    );
 }
 
