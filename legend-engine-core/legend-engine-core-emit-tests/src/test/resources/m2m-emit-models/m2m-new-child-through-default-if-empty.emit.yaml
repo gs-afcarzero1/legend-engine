@@ -1,0 +1,19 @@
+name: m2m-new-child-through-default-if-empty
+title: "M2M child mapping reads constructed instances passed through defaultIfEmpty"
+description: |
+  The parent maps each element to Box(ft=element) and passes the result
+  through defaultIfEmpty, a function the scanner has no specific rule for.
+  The child mapping with ~src Box reads ft.id and, after a cast to Special,
+  a nested value, so the elements must remain the source of the child.
+modelSources:
+  model:
+    root: m2m-new-child-through-default-if-empty
+    files:
+      - model.pure
+features:
+  - mapping:mapping
+stores: []
+complexity: basic
+tags:
+  - m2m
+  - new-operator
