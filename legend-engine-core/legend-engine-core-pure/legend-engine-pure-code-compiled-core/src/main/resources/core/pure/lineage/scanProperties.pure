@@ -268,11 +268,11 @@ function <<access.private>> meta::pure::lineage::scanProperties::internal_scanPr
                                                                                            {|
                                                                                               if($leftSide.current->orElseEmptyPath()->holdsConstructedInstance(),
                                                                                                  | $q->inlineQualifierOnConstructedInstance($leftSide->toOne(), $params->tail(), $processed, $vars, $config, $debug),
-                                                                                                 | let nlist = $q->processQualifier($srcClass, $params->tail(), $leftSide.current->orElseEmptyPath(), $processed, $vars, true, $config, $leftSide->getVisitedFunctions(), $debug);
-                                                                                                   makeScanPropertiesState($nlist, $nlist, $leftSide->getVisitedFunctions());
+                                                                                                 | let qualified = $q->processQualifierState($srcClass, $params->tail(), $leftSide.current->orElseEmptyPath(), $processed, $vars, true, $config, $leftSide->getVisitedFunctions(), $debug);
+                                                                                                   makeScanPropertiesState($qualified.current, $qualified.current, $qualified.visitedFunctions);
                                                                                               );
                                                                                            },
-                                                                                           | makeScanPropertiesState(emptyPath(), [], $leftSide->getVisitedFunctions())
+                                                                                           | makeScanPropertiesState(emptyPath(), [], $leftSide->getVisitedFunctions()->put($q->recursionCutKey()->toOne(), makeScanPropertiesState(emptyPath(), [], ^Map<String,ScanPropertiesState>())))
                                                                                         );,
                                                             z:Any[1]|print(if($debug.debug,|$debug.space+'  function: \''+$fe.func.name->toOne()+'\'\n',|''));
                                                                          if($fe.func.name->in(['eval_Function_1__T_n__V_m_']),
@@ -464,7 +464,7 @@ function <<access.private>> meta::pure::lineage::scanProperties::internal_scanPr
                                                                                print(if($debug.debug,|$debug.space+'checking if func should be processed further \n',|''));
                                                                                let func = $fe.func->filter(f| $f->shouldBeProcessed($processed))->first();
                                                                                let afterParams = if($pp->isEmpty(), |$visitedFunctions, |$pp->last()->toOne().visitedFunctions);
-                                                                               let visited = if($processed->contains($fe.func), |$afterParams->put($fe.func->recursionCutKey(), makeScanPropertiesState(emptyPath(), [], ^Map<String,ScanPropertiesState>())), |$afterParams);
+                                                                               let visited = if($processed->contains($fe.func), |$afterParams->put($fe.func->recursionCutKey()->toOne(), makeScanPropertiesState(emptyPath(), [], ^Map<String,ScanPropertiesState>())), |$afterParams);
                                                                                let state = $func->processFunction($pp, $vars, $processed,  $config, $visited, ^$debug(space=$debug.space+'    '));
                                                                                if($func->isEmpty(), |^$state(current = $fe.func->currentOfReturnedTypeParameter($pp)), |$state);
                                                                             }
@@ -530,9 +530,13 @@ function <<access.private>> meta::pure::lineage::scanProperties::scanInOrder(vss
    }, list([]->cast(@ScanPropertiesState))).values;
 }
 
-function <<access.private>> meta::pure::lineage::scanProperties::recursionCutKey(f:Function<Any>[1]):String[1]
+function <<access.private>> meta::pure::lineage::scanProperties::recursionCutKey(f:Function<Any>[1]):String[0..1]
 {
-   'recursion cut:' + $f->cast(@PackageableElement)->elementToPath();
+   $f->match([
+      q:QualifiedProperty<Any>[1] | 'recursion cut:' + $q.owner->cast(@PackageableElement)->elementToPath() + '.' + $q.name->toOne(),
+      p:PackageableElement[1]     | 'recursion cut:' + $p->elementToPath(),
+      a:Any[1]                    | []
+   ]);
 }
 
 function <<access.private>> meta::pure::lineage::scanProperties::extractType(vs:ValueSpecification[1]):Type[1]
@@ -669,7 +673,7 @@ function <<access.private>> meta::pure::lineage::scanProperties::processFunction
 
                     let body = $expressions->processExpressionSequence($allVars, $processed->concatenate($f), $config, $visitedFunctions, $debug);
                     // A body scanned while one of its callers was cut short by the recursion guard misses that caller's reads, so it is not reusable elsewhere.
-                    let cutByCaller = $processed->exists(c | $c->instanceOf(PackageableElement) && $body.visitedFunctions->get($c->recursionCutKey())->isNotEmpty());
+                    let cutByCaller = $processed->exists(c | $c->recursionCutKey()->exists(k | $body.visitedFunctions->get($k)->isNotEmpty()));
                     let updatedMap = if($cutByCaller, |$body.visitedFunctions, |$body.visitedFunctions->put($f->meta::pure::functions::meta::elementToPath(), ^$body(visitedFunctions = ^Map<String,ScanPropertiesState>())));
 
                     let acutalResult = resolveDummyNodes($body, $paramPaths);
@@ -798,10 +802,18 @@ function <<access.private>> meta::pure::lineage::scanProperties::processProperty
 
 function <<access.private>> meta::pure::lineage::scanProperties::processQualifier(q:QualifiedProperty<Any>[1], srcClass:Class<Any>[1], parameters:ValueSpecification[*], list:List<PropertyPathNode>[1], processed:Function<Any>[*], vars:Map<String,List<PropertyPathNode>>[1], append:Boolean[1], config:ScanConfig[1], visitedFunctions:Map<String,ScanPropertiesState>[1], debug:DebugContext[1]):List<PropertyPathNode>[1]
 {
-   let paramPaths    = $parameters->map(v|$v->internal_scanProperties($processed, $vars, $config, $visitedFunctions, ^$debug(space=$debug.space+'    ')));
+   $q->processQualifierState($srcClass, $parameters, $list, $processed, $vars, $append, $config, $visitedFunctions, $debug).current;
+}
+
+function <<access.private>> meta::pure::lineage::scanProperties::processQualifierState(q:QualifiedProperty<Any>[1], srcClass:Class<Any>[1], parameters:ValueSpecification[*], list:List<PropertyPathNode>[1], processed:Function<Any>[*], vars:Map<String,List<PropertyPathNode>>[1], append:Boolean[1], config:ScanConfig[1], visitedFunctions:Map<String,ScanPropertiesState>[1], debug:DebugContext[1]):ScanPropertiesState[1]
+{
+   let paramPaths    = $parameters->scanInOrder($processed, $vars, $config, $visitedFunctions, ^$debug(space=$debug.space+'    '));
+   let afterParams   = if($paramPaths->isEmpty(), |$visitedFunctions, |$paramPaths->last()->toOne().visitedFunctions);
    let qualifierVars = $q->functionType().parameters->tail().name->zip($paramPaths.current)->newMap();
+   let skipBody      = $q->isMilestonedGeneratedQualifiedProperty() && $config.explodeMilestonedProperties==false;
+   let qualifierBody = if($skipBody, |[], |$q.expressionSequence->processExpressionSequence($qualifierVars, $processed->concatenate($q), $config, $afterParams, $debug));
     
-  let property = if($q->isMilestonedGeneratedQualifiedProperty() && $config.explodeMilestonedProperties==false,
+  let property = if($skipBody,
        | if(hasSufficientValuesForPropertyParameters( $q,$parameters),
             | ^PropertyPathNode(
                           class                 = $srcClass,
@@ -818,8 +830,7 @@ function <<access.private>> meta::pure::lineage::scanProperties::processQualifie
                           nestedQualifierReturn = []
                        )
          ),
-      | let qualifierBody = $q.expressionSequence->processExpressionSequence($qualifierVars, $processed->concatenate($q), $config, $visitedFunctions, $debug);
-          ^PropertyPathNode(
+      | ^PropertyPathNode(
                                 class                 = $srcClass,
                                 property              = $q,
                                 nestedQualifier       = $qualifierBody.result,
@@ -827,7 +838,11 @@ function <<access.private>> meta::pure::lineage::scanProperties::processQualifie
                                 nestedQualifierReturn = $qualifierBody->last().current
                             );
      );
-   if($append,|^$list(values = $list.values->concatenate($property)),|^$list(values = $property->concatenate($list.values)));
+   makeScanPropertiesState(
+      if($append,|^$list(values = $list.values->concatenate($property)),|^$list(values = $property->concatenate($list.values))),
+      [],
+      if($qualifierBody->isEmpty(), |$afterParams, |$qualifierBody->toOne().visitedFunctions)
+   );
 }
 
 function <<access.private>> meta::pure::lineage::scanProperties::inlineQualifierOnConstructedInstance(q:QualifiedProperty<Any>[1], leftSide:ScanPropertiesState[1], parameters:ValueSpecification[*], processed:Function<Any>[*], vars:Map<String,List<PropertyPathNode>>[1], config:ScanConfig[1], debug:DebugContext[1]):ScanPropertiesState[1]
