@@ -2181,6 +2181,24 @@ Class meta::pure::graphFetch::tests::sourceTreeCalc::functionCaching::_D
    val2:String[1];
 }
 
+Class meta::pure::graphFetch::tests::sourceTreeCalc::functionCaching::_Even
+{
+   a: String[1];
+   partner: _Odd[0..1];
+}
+
+Class meta::pure::graphFetch::tests::sourceTreeCalc::functionCaching::_Odd
+{
+   b: String[1];
+   partner: _Even[0..1];
+}
+
+Class meta::pure::graphFetch::tests::sourceTreeCalc::functionCaching::_Pair
+{
+   even: _Even[1];
+   odd: _Odd[1];
+}
+
 function meta::pure::lineage::scanProperties::test::func(d: _D[0..1], s:String[0..1]):String[0..1]
 {
   $d->toOne().val1->toOne() + $s->toOne();
@@ -2212,6 +2230,18 @@ function meta::pure::lineage::scanProperties::test::func4(d: _D[0..1]):String[0.
 function meta::pure::lineage::scanProperties::test::test::func4(d: _D[0..1], s:String[0..1]):String[0..1]
 {
   $d.val2;
+}
+
+function meta::pure::lineage::scanProperties::test::readEven(e: _Even[1]):String[1]
+{
+  let rest = if($e.partner->isEmpty(), |'', |$e.partner->toOne()->meta::pure::lineage::scanProperties::test::readOdd());
+  $e.a + $rest;
+}
+
+function meta::pure::lineage::scanProperties::test::readOdd(o: _Odd[1]):String[1]
+{
+  let rest = if($o.partner->isEmpty(), |'', |$o.partner->toOne()->meta::pure::lineage::scanProperties::test::readEven());
+  $o.b + $rest;
 }
 
 function <<test.Test>> meta::pure::graphFetch::tests::sourceTreeCalc::functionCaching::testReuseSimpleFunction():Boolean[1]
@@ -2462,6 +2492,41 @@ function <<test.Test>> meta::pure::graphFetch::tests::sourceTreeCalc::functionCa
    assertEquals($expected->asString(true), $sourceTree->asString(true));
 }
 
+function <<test.Test>> meta::pure::graphFetch::tests::sourceTreeCalc::functionCaching::testMutuallyRecursiveFunctionsReadEverythingFromEitherEntry():Boolean[1]
+{
+   let tree = #{
+      A {
+         a,
+         b
+       }
+   }#;
+
+   let sourceTree = calculateSourceTree($tree, testMapping6, meta::pure::extension::defaultExtensions())->sortTree();
+   // odd reuses the reads cached for even, which already unroll one call of odd, so odd's side is one level deeper
+   let expected = #{
+      _Pair {
+        even {
+          a,
+          partner {
+            b,
+            partner
+          }
+        },
+        odd {
+          b,
+          partner {
+            a,
+            partner {
+              b,
+              partner
+            }
+          }
+        }
+      }
+   }#;
+   assertEquals($expected->asString(true), $sourceTree->asString(true));
+}
+
 ###Mapping
 import meta::pure::graphFetch::tests::sourceTreeCalc::functionCaching::*;
 import meta::pure::lineage::scanProperties::test::*;
@@ -2552,6 +2617,16 @@ Mapping meta::pure::graphFetch::tests::sourceTreeCalc::functionCaching::testMapp
       {
          ~src _A
          a: $src.b.d->func3($src.s1)->func4()
+      }
+)
+
+Mapping meta::pure::graphFetch::tests::sourceTreeCalc::functionCaching::testMapping6
+(
+   A: Pure
+      {
+         ~src _Pair
+         a: $src.even->readEven(),
+         b: $src.odd->readOdd()
       }
 )
 

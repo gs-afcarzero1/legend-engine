@@ -463,7 +463,8 @@ function <<access.private>> meta::pure::lineage::scanProperties::internal_scanPr
                                                                                
                                                                                print(if($debug.debug,|$debug.space+'checking if func should be processed further \n',|''));
                                                                                let func = $fe.func->filter(f| $f->shouldBeProcessed($processed))->first();
-                                                                               let state = $func->processFunction($pp, $vars, $processed,  $config, $visitedFunctions, ^$debug(space=$debug.space+'    '));
+                                                                               let visited = if($processed->contains($fe.func), |$visitedFunctions->put($fe.func->recursionCutKey(), makeScanPropertiesState(emptyPath(), [], ^Map<String,ScanPropertiesState>())), |$visitedFunctions);
+                                                                               let state = $func->processFunction($pp, $vars, $processed,  $config, $visited, ^$debug(space=$debug.space+'    '));
                                                                                if($func->isEmpty(), |^$state(current = $fe.func->currentOfReturnedTypeParameter($pp)), |$state);
                                                                             }
                                                                          )))))))))))));
@@ -516,6 +517,11 @@ function <<access.private>> meta::pure::lineage::scanProperties::isPackageOk(f:F
 function <<access.private>> meta::pure::lineage::scanProperties::shouldBeProcessed(f:Function<Any>[1], processed:Function<Any>[*]):Boolean[1]
 {
    isPackageOk($f) && !$processed->contains($f);
+}
+
+function <<access.private>> meta::pure::lineage::scanProperties::recursionCutKey(f:Function<Any>[1]):String[1]
+{
+   'recursion cut:' + $f->cast(@PackageableElement)->elementToPath();
 }
 
 function <<access.private>> meta::pure::lineage::scanProperties::extractType(vs:ValueSpecification[1]):Type[1]
@@ -651,7 +657,9 @@ function <<access.private>> meta::pure::lineage::scanProperties::processFunction
                                     let expressions = $f->match([l:FunctionDefinition<Any>[1]| $l.expressionSequence, n:NativeFunction<Any>[1]| []]);
 
                     let body = $expressions->processExpressionSequence($allVars, $processed->concatenate($f), $config, $visitedFunctions, $debug);
-                    let updatedMap = $body.visitedFunctions->put($f->meta::pure::functions::meta::elementToPath(), ^$body(visitedFunctions = ^Map<String,ScanPropertiesState>()));
+                    // A body scanned while one of its callers was cut short by the recursion guard misses that caller's reads, so it is not reusable elsewhere.
+                    let cutByCaller = $processed->exists(c | $c->instanceOf(PackageableElement) && $body.visitedFunctions->get($c->recursionCutKey())->isNotEmpty());
+                    let updatedMap = if($cutByCaller, |$body.visitedFunctions, |$body.visitedFunctions->put($f->meta::pure::functions::meta::elementToPath(), ^$body(visitedFunctions = ^Map<String,ScanPropertiesState>())));
 
                     let acutalResult = resolveDummyNodes($body, $paramPaths);
                                       
