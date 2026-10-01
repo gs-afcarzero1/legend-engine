@@ -56,9 +56,9 @@ Class meta::pure::lineage::scanProperties::ScanPropertiesState
 
 Class meta::pure::lineage::scanProperties::ConstructedPropertyAssignment
 {
-   propertyName : String[1];
-   path : List<PropertyPathNode>[1];
-   add : Boolean[1];
+   <<equality.Key>> propertyName : String[1];
+   <<equality.Key>> path : List<PropertyPathNode>[1];
+   <<equality.Key>> add : Boolean[1];
 }
 
 // Never a physical source path: result paths holding one are dropped. A current holding one is the returned value, which M2M binds to a child mapping's source.
